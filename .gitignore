@@ -1,0 +1,13 @@
+# SQLite database files
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment / node
+node_modules/
+.venv/
+env/
