@@ -138,20 +138,20 @@
 
     /* Copilot-style File Edit Widget */
     .copilot-file-card {
-      margin: 14px 0;
+      margin: 18px 0;
       border: 1px solid #30363d;
-      border-radius: 8px;
-      background: #161b22;
+      border-radius: 10px;
+      background: #0d1117;
       overflow: hidden;
       font-size: 13px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
     }
     .copilot-file-header {
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 8px 14px;
-      background: #1c2128;
+      gap: 8px;
+      padding: 11px 14px;
+      background: #161b22;
       border-bottom: 1px solid #30363d;
       user-select: none;
     }
@@ -169,7 +169,7 @@
     }
     .copilot-file-path {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 12.5px;
+      font-size: 13px;
       font-weight: 600;
       color: #e6edf3;
       overflow: hidden;
@@ -179,22 +179,22 @@
     }
     .copilot-file-badge {
       font-size: 10.5px;
-      padding: 1.5px 7px;
+      padding: 2px 7px;
       border-radius: 12px;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.35px;
       line-height: 1.4;
     }
     .copilot-file-badge.created {
-      background: rgba(46, 160, 67, 0.15);
-      color: #3fb950;
-      border: 1px solid rgba(46, 160, 67, 0.4);
+      background: rgba(46, 160, 67, 0.1);
+      color: #7ee787;
+      border: 1px solid rgba(46, 160, 67, 0.3);
     }
     .copilot-file-badge.modified {
-      background: rgba(210, 153, 34, 0.15);
-      color: #d29922;
-      border: 1px solid rgba(210, 153, 34, 0.4);
+      background: rgba(210, 153, 34, 0.1);
+      color: #e3b341;
+      border: 1px solid rgba(210, 153, 34, 0.3);
     }
     .copilot-file-stats {
       font-size: 11px;
@@ -204,26 +204,26 @@
       align-items: center;
     }
     .copilot-file-stats .stat-add {
-      color: #3fb950;
-      background: rgba(46, 160, 67, 0.15);
-      border: 1px solid rgba(46, 160, 67, 0.35);
-      padding: 1px 6px;
+      color: #7ee787;
+      background: rgba(46, 160, 67, 0.1);
+      border: 1px solid rgba(46, 160, 67, 0.25);
+      padding: 2px 6px;
       border-radius: 10px;
       font-weight: 600;
     }
     .copilot-file-stats .stat-del {
-      color: #f85149;
-      background: rgba(248, 81, 73, 0.15);
-      border: 1px solid rgba(248, 81, 73, 0.35);
-      padding: 1px 6px;
+      color: #ffa198;
+      background: rgba(248, 81, 73, 0.1);
+      border: 1px solid rgba(248, 81, 73, 0.25);
+      padding: 2px 6px;
       border-radius: 10px;
       font-weight: 600;
     }
     .copilot-file-toggle {
-      background: #21262d;
+      background: #1f242c;
       border: 1px solid #30363d;
       color: #c9d1d9;
-      padding: 3px 9px;
+      padding: 5px 10px;
       font-size: 11px;
       border-radius: 6px;
       cursor: pointer;
@@ -236,7 +236,7 @@
     .copilot-file-toggle:hover {
       background: #30363d;
       color: #f0f6fc;
-      border-color: #8b949e;
+      border-color: #6e7681;
     }
     .copilot-file-body {
       display: block;
@@ -249,32 +249,32 @@
     }
     .copilot-file-diff {
       margin: 0;
-      padding: 6px 0;
+      padding: 8px 0;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 12px;
-      line-height: 1.6;
+      font-size: 12.5px;
+      line-height: 1.5;
       white-space: pre;
       overflow-x: auto;
     }
     .copilot-diff-line {
-      padding: 1px 16px;
+      padding: 0 12px;
       display: flex;
       align-items: flex-start;
-      border-left: 3px solid transparent;
+      border-left: 2px solid transparent;
     }
     .copilot-diff-line.add {
-      background: rgba(46, 160, 67, 0.14);
-      color: #7ee787;
+      background: rgba(46, 160, 67, 0.08);
+      color: #8ddb8c;
       border-left-color: #3fb950;
     }
     .copilot-diff-line.del {
-      background: rgba(248, 81, 73, 0.14);
+      background: rgba(248, 81, 73, 0.08);
       color: #ffa198;
       border-left-color: #f85149;
     }
     .copilot-diff-line.hunk {
       color: #79c0ff;
-      background: rgba(56, 139, 253, 0.12);
+      background: rgba(56, 139, 253, 0.09);
       font-weight: 550;
     }
     .copilot-diff-line.header {
@@ -284,11 +284,32 @@
     .copilot-diff-line.ctx {
       color: #c9d1d9;
     }
+    .copilot-diff-line.blank {
+      min-height: 10px;
+      font-size: 10px;
+      line-height: 10px;
+    }
+    .copilot-diff-line.add.blank {
+      background: rgba(46, 160, 67, 0.025);
+    }
+    .copilot-diff-line.del.blank {
+      background: rgba(248, 81, 73, 0.025);
+    }
     .copilot-diff-prefix {
       width: 18px;
       flex-shrink: 0;
       user-select: none;
       opacity: 0.75;
+    }
+    .copilot-diff-line.blank .copilot-diff-prefix {
+      visibility: hidden;
+      height: 8px;
+      line-height: 8px;
+    }
+    .copilot-diff-line.blank .copilot-diff-content {
+      height: 8px;
+      line-height: 8px;
+      font-size: 8px;
     }
     .copilot-diff-content {
       flex: 1;
@@ -495,6 +516,13 @@
       #composer { width: calc(100% - 24px); padding: 12px; border-radius: 20px; }
       .footer { padding: 8px 16px; }
       .content { font-size: 14px; }
+    }
+    @media (max-width: 520px) {
+      .copilot-file-header { flex-wrap: wrap; }
+      .copilot-file-path { flex: 1 1 calc(100% - 28px); }
+      .copilot-file-toggle { margin-left: auto; }
+      .copilot-file-diff { font-size: 11.5px; }
+      .copilot-diff-line { padding-right: 10px; padding-left: 10px; }
     }
   </style>
 </head>
@@ -1027,14 +1055,18 @@
           lineElem.classList.add('add');
           prefixElem.textContent = '+';
           contentElem.textContent = line.slice(1);
+          if (!line.slice(1).trim()) lineElem.classList.add('blank');
         } else if (line.startsWith('-')) {
           lineElem.classList.add('del');
           prefixElem.textContent = '-';
           contentElem.textContent = line.slice(1);
+          if (!line.slice(1).trim()) lineElem.classList.add('blank');
         } else {
           lineElem.classList.add('ctx');
           prefixElem.textContent = ' ';
-          contentElem.textContent = line.startsWith(' ') ? line.slice(1) : line;
+          const content = line.startsWith(' ') ? line.slice(1) : line;
+          contentElem.textContent = content;
+          if (!content.trim()) lineElem.classList.add('blank');
         }
 
         lineElem.append(prefixElem, contentElem);
@@ -1099,6 +1131,7 @@
         for (const line of contentLines) {
           const lineElem = document.createElement('div');
           lineElem.className = 'copilot-diff-line add';
+          if (!line.trim()) lineElem.classList.add('blank');
           const prefixElem = document.createElement('span');
           prefixElem.className = 'copilot-diff-prefix';
           prefixElem.textContent = '+';
@@ -1378,11 +1411,27 @@
               reply.article.insertBefore(details, reply.content);
             }
             setMessageContent(thinkingContent, thinking);
+            if (chunk.message.thinking.includes('Calling tool: web_search')) {
+              status('Searching the web with DuckDuckGo...');
+            } else if (chunk.message.thinking.includes('Calling tool: fetch_web_page')) {
+              status('Fetching webpage content...');
+            } else if (chunk.message.thinking.includes('Calling tool: run_command')) {
+              status('Running terminal command...');
+            } else if (chunk.message.thinking.includes('Calling tool: read_file')) {
+              status('Reading file...');
+            } else if (chunk.message.thinking.includes('Calling tool: write_file')) {
+              status('Writing file...');
+            } else if (chunk.message.thinking.includes('Calling tool: list_files')) {
+              status('Listing files...');
+            }
           }
           if (typeof chunk.message?.content === 'string') {
             const follow = $('messages').scrollHeight - $('messages').scrollTop - $('messages').clientHeight < 100;
             answer += chunk.message.content;
-            if (answer) setMessageContent(reply.content, answer, true);
+            if (answer) {
+              setMessageContent(reply.content, answer, true);
+              status('Generating with Qwen + Ollama + LangGraph...');
+            }
             if (follow) $('messages').scrollTop = $('messages').scrollHeight;
           }
           if (chunk.done === true) completed = true;

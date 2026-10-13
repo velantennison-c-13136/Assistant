@@ -8,7 +8,6 @@ const { spawn } = require('node:child_process');
 const { setTimeout: delay } = require('node:timers/promises');
 const { DatabaseSync } = require('node:sqlite');
 
-const page = fs.readFileSync(path.join(__dirname, 'index.html'));
 const ollamaUrl = 'http://127.0.0.1:11434';
 const langGraphScript = path.join(__dirname, 'langgraph_agent.py');
 const pythonBin = process.env.PYTHON_BIN || 'python3';
@@ -310,12 +309,24 @@ const server = http.createServer((request, response) => {
       response.end('Method not allowed');
       return;
     }
-    response.writeHead(200, {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'no-store',
-      'X-Content-Type-Options': 'nosniff'
+    fs.readFile(path.join(__dirname, 'index.html'), (error, page) => {
+      if (error) {
+        console.error(`Could not read the chat UI: ${error.message}`);
+        response.writeHead(500, {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff'
+        });
+        response.end('Could not load the chat UI.');
+        return;
+      }
+      response.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff'
+      });
+      response.end(request.method === 'HEAD' ? undefined : page);
     });
-    response.end(request.method === 'HEAD' ? undefined : page);
     return;
   }
   sendJson(response, 404, { error: 'Not found' });

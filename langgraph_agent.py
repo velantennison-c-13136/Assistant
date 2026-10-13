@@ -4,11 +4,24 @@ from __future__ import annotations
 import difflib
 import json
 import os
+import re
 import subprocess
 import sys
+import urllib.parse
+import urllib.request
 import warnings
 from pathlib import Path
 from typing import Annotated, TypedDict
+
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = None
+
+try:
+    import requests
+except ImportError:
+    requests = None
 
 try:
     from urllib3.exceptions import NotOpenSSLWarning
@@ -31,20 +44,26 @@ DEFAULT_WORKING_DIR = Path(os.environ.get("ASSISTANT_WORKSPACE", Path(__file__).
 
 SYSTEM_PROMPT = """You are an autonomous engineering assistant running with Qwen through Ollama and orchestrated by LangGraph.
 
-You have full, unrestricted access to the user's filesystem and tools to execute actions on their system:
+You have full access to tools to execute actions on the user's system and online:
+- web_search: search the live web using DuckDuckGo to find real-time documentation, releases, error fixes, or current information.
+- fetch_web_page: fetch and read the content of a specific webpage by URL.
 - read_file: read file contents from any path (absolute path or relative path).
 - write_file: create or update files at any path (absolute path or relative path).
 - run_command: execute any terminal commands such as test runners (e.g. pytest, npm test), linters, git, and python scripts across any directory.
 - list_files: list files and directories at any path.
 
 CRITICAL INSTRUCTIONS:
+- You CAN perform web searches and fetch web pages using `web_search` and `fetch_web_page`. NEVER claim "I cannot perform web searches" or "I do not have live internet browsing capabilities". When the user asks for current information, current leaders/officeholders, news, latest documentation, or explicitly to search online, CALL `web_search` immediately!
+- When invoking a tool, ALWAYS use the official function/tool call mechanism. NEVER write the tool name as raw plain text (such as outputting 'web_search') in your response without making the actual tool call.
 - You have FULL and UNRESTRICTED access to all filesystem paths on the user's machine (including `/Users/vela-13136/LLM`, `/Users/vela-13136/LLM/Assistant`, or any path).
-- There is NO SANDBOX and NO WORKSPACE BOUNDARY. The tools (`write_file`, `read_file`, `list_files`, `run_command`) run directly on the host machine.
+- There is NO SANDBOX and NO WORKSPACE BOUNDARY. The tools (`write_file`, `read_file`, `list_files`, `run_command`, `web_search`, `fetch_web_page`) run directly on the host machine.
 - NEVER say "I cannot access or modify your local file system paths", "I cannot write directly to /Users/vela-13136/LLM", or "The tools operate strictly within a workspace/sandbox". That is false!
-- If the user asks to create, write, edit, read, list files, or run commands at `/Users/vela-13136/LLM` or ANY path, CALL THE TOOL IMMEDIATELY. Do not apologize or refuse.
+- If the user asks to create, write, edit, read, list files, search online, or run commands, CALL THE TOOL IMMEDIATELY. Do not apologize or refuse.
 - Check files, verify bug fixes, and execute test commands directly to confirm changes work.
 - Provide clear, concrete, step-by-step explanations alongside tool results.
 """
+
+CHAT_ONLY_PROMPT = """You are a helpful engineering assistant running with Qwen through Ollama."""
 
 
 def resolve_path(target_path: str) -> Path:
@@ -175,13 +194,154 @@ def run_command(command: str, working_directory: str = "") -> str:
         return f"Error running command '{command}': {e}"
 
 
-ALL_TOOLS = [read_file, write_file, list_files, run_command]
+@tool
+def web_search(query: str, max_results: int = 5) -> str:
+    """Search the web for up-to-date information, documentation, news, or solutions using DuckDuckGo."""
+    query = query.strip()
+    if not query:
+        return "Error: Empty search query."
+
+    # Strategy 1: DuckDuckGo HTML interface
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://html.duckduckgo.com/"
+    }
+    results: list[dict[str, str]] = []
+
+    try:
+        url = "https://html.duckduckgo.com/html/"
+        data = urllib.parse.urlencode({"q": query}).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html_text = resp.read().decode("utf-8", errors="ignore")
+
+        if BeautifulSoup:
+            soup = BeautifulSoup(html_text, "html.parser")
+            for r in soup.select(".result"):
+                snippet_el = r.select_one(".result__snippet")
+                title_el = r.select_one(".result__title a")
+                if not snippet_el or not title_el:
+                    continue
+                title = title_el.get_text(strip=True)
+                snippet = snippet_el.get_text(strip=True)
+                href = title_el.get("href", "")
+                if "uddg=" in href:
+                    m = re.search(r"uddg=([^&]+)", href)
+                    if m:
+                        href = urllib.parse.unquote(m.group(1))
+                results.append({"title": title, "url": href, "snippet": snippet})
+                if len(results) >= max_results:
+                    break
+    except Exception:
+        pass
+
+    # Strategy 2 fallback: Lite DuckDuckGo
+    if not results:
+        try:
+            lite_url = "https://lite.duckduckgo.com/lite/"
+            data = urllib.parse.urlencode({"q": query}).encode("utf-8")
+            lite_headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://lite.duckduckgo.com/"
+            }
+            req = urllib.request.Request(lite_url, data=data, headers=lite_headers)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                html_text = resp.read().decode("utf-8", errors="ignore")
+
+            if BeautifulSoup:
+                soup = BeautifulSoup(html_text, "html.parser")
+                for a in soup.select("a.result-link")[:max_results]:
+                    title = a.get_text(strip=True)
+                    href = a.get("href", "")
+                    if "uddg=" in href:
+                        m = re.search(r"uddg=([^&]+)", href)
+                        if m:
+                            href = urllib.parse.unquote(m.group(1))
+                    tr = a.find_parent("tr")
+                    snippet = ""
+                    if tr:
+                        next_tr = tr.find_next_sibling("tr")
+                        if next_tr:
+                            snip_td = next_tr.select_one(".result-snippet")
+                            if snip_td:
+                                snippet = snip_td.get_text(strip=True)
+                    results.append({"title": title, "url": href, "snippet": snippet})
+        except Exception:
+            pass
+
+    # Strategy 3 fallback: DuckDuckGo Instant Answer API
+    if not results:
+        try:
+            api_url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(query)}&format=json"
+            req = urllib.request.Request(api_url, headers=headers)
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            abstract = data.get("AbstractText") or data.get("Abstract")
+            if abstract:
+                results.append({
+                    "title": data.get("Heading") or query,
+                    "url": data.get("AbstractURL") or "",
+                    "snippet": abstract
+                })
+        except Exception:
+            pass
+
+    if not results:
+        return f"No web search results found for '{query}'."
+
+    formatted: list[str] = [f"Web search results for '{query}':\n"]
+    for i, r in enumerate(results, 1):
+        formatted.append(f"{i}. [{r['title']}]({r['url']})\n   {r['snippet']}\n")
+    return "\n".join(formatted)
+
+
+@tool
+def fetch_web_page(url: str, max_chars: int = 4000) -> str:
+    """Fetch and extract readable text from a web page URL."""
+    url = url.strip()
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return "Error: URL must start with http:// or https://"
+
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        if requests:
+            resp = requests.get(url, headers=headers, timeout=12)
+            resp.raise_for_status()
+            raw_html = resp.text
+        else:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                raw_html = resp.read().decode("utf-8", errors="ignore")
+
+        if BeautifulSoup:
+            soup = BeautifulSoup(raw_html, "html.parser")
+            for tag in soup(["script", "style", "nav", "header", "footer", "svg", "noscript"]):
+                tag.decompose()
+            text = soup.get_text(separator=" ", strip=True)
+            text = re.sub(r"\s+", " ", text)
+            if len(text) > max_chars:
+                text = text[:max_chars] + f"\n... (truncated to {max_chars} chars)"
+            return text if text else "Page loaded, but contains no readable text."
+        else:
+            clean = re.sub(r"<[^>]+>", " ", raw_html)
+            clean = re.sub(r"\s+", " ", clean).strip()
+            return clean[:max_chars]
+    except Exception as e:
+        return f"Error fetching web page '{url}': {e}"
+
+
+ALL_TOOLS = [read_file, write_file, list_files, run_command, web_search, fetch_web_page]
 TOOL_REQUEST_MARKERS = (
     "run ", "test", "pytest", "npm ", "pnpm ", "yarn ", "lint", "build", "execute",
     "command", "shell", "terminal", "edit ", "modify ", "update ", "change ",
     "write file", "create file", "save ", "list files", "read file", "open file",
     "workspace", "directory", "folder", "git ", "cat ", "ls ", "touch ", "mkdir ",
-    "rm ", "check file", "inspect file", "show file", "view file"
+    "rm ", "check file", "inspect file", "show file", "view file",
+    "websearch", "web search", "search web", "google", "duckduckgo", "search online",
+    "search the web", "search for", "look up", "lookup", "online", "latest",
+    "what is", "browse", "fetch url", "fetch webpage", "http://", "https://"
 )
 
 
@@ -254,7 +414,7 @@ def build_chat_graph(model: str, endpoint: str):
             emit({"message": {"thinking": "Large attachments or long chat history detected. This response may take longer.\n"}})
 
         parts: list[str] = []
-        for chunk in llm.stream([SystemMessage(content=SYSTEM_PROMPT), *state["messages"]], think=False):
+        for chunk in llm.stream([SystemMessage(content=CHAT_ONLY_PROMPT), *state["messages"]], think=False):
             text = text_from_response(chunk.content)
             if text:
                 parts.append(text)
@@ -293,7 +453,7 @@ def run_tool_agent(agent, messages: list[BaseMessage]) -> None:
         for mode, payload in agent.stream(
             {"messages": messages},
             stream_mode=["updates", "messages"],
-            config={"recursion_limit": 8}
+            config={"recursion_limit": 16}
         ):
             if mode == "messages":
                 chunk, metadata = payload
@@ -337,16 +497,32 @@ def run_chat_graph(graph, messages: list[BaseMessage]) -> None:
         raise ValueError("The LangGraph chat flow exceeded its step limit unexpectedly.") from error
 
 
+RAW_TOOL_NAMES = {
+    "web_search", "fetch_web_page", "read_file", "write_file",
+    "list_files", "run_command"
+}
+
+
 def clean_history_for_tools(messages: list[BaseMessage]) -> list[BaseMessage]:
-    """Clean up misleading assistant claims about workspace/sandbox restrictions from earlier turns in the conversation."""
+    """Clean up misleading assistant claims about workspace/sandbox restrictions, lack of web search, or incomplete raw tool names from earlier turns."""
     cleaned: list[BaseMessage] = []
     for msg in messages:
         if isinstance(msg, AIMessage) and isinstance(msg.content, str):
+            lower = msg.content.lower().strip()
             # Check if this assistant message falsely claims sandbox/workspace refusal
-            lower = msg.content.lower()
             if ("cannot write directly" in lower or "strictly within the" in lower or "cannot directly access or modify your local" in lower) and "workspace" in lower:
-                # Replace with a corrected message or prune it so the LLM doesn't mimic its past refusal
                 continue
+            # Check if this assistant message falsely claims it cannot perform web searches
+            if ("cannot perform web searches" in lower or "cannot perform web search" in lower or "do not have live internet" in lower or "do not have access to tools like google_search" in lower or "cannot search the web" in lower):
+                continue
+            # Check if this assistant message got stuck emitting a raw tool name at the end
+            lines = [l.strip() for l in msg.content.split("\n") if l.strip()]
+            if lines and lines[-1].lower() in RAW_TOOL_NAMES:
+                # If it was just an announcement plus the tool name (like "I will search... web_search"), drop it completely
+                if len(lines) <= 2:
+                    continue
+                # Otherwise, remove the trailing raw tool name line
+                msg.content = "\n".join(lines[:-1])
         cleaned.append(msg)
     # Ensure there is at least the last user message
     if not cleaned:
@@ -368,11 +544,12 @@ def main() -> int:
             raise ValueError("At least one message is required.")
 
         chat_messages = [to_message(item) for item in messages]
-        if should_use_tools(chat_messages):
-            chat_messages = clean_history_for_tools(chat_messages)
+        chat_messages = clean_history_for_tools(chat_messages)
+        try:
             agent = build_agent(model.strip(), endpoint.strip())
             run_tool_agent(agent, chat_messages)
-        else:
+        except Exception:
+            # Fallback to chat graph if tool agent encounters an unrecoverable failure
             graph = build_chat_graph(model.strip(), endpoint.strip())
             run_chat_graph(graph, chat_messages)
         return 0
