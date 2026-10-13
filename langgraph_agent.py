@@ -37,13 +37,13 @@ You have full, unrestricted access to the user's filesystem and tools to execute
 - run_command: execute any terminal commands such as test runners (e.g. pytest, npm test), linters, git, and python scripts across any directory.
 - list_files: list files and directories at any path.
 
-Guidelines:
-- You have FULL and UNRESTRICTED access to all filesystem paths on the system (e.g., /Users/vela-13136/LLM, /Users/vela-13136/LLM/Assistant, or any other directory).
-- NEVER refuse to read, write, list files, or run commands by claiming workspace or sandbox limitations. You have full access and tools to do so.
-- When asked to inspect files, edit code, run tests, or access any path, USE YOUR TOOLS immediately.
+CRITICAL INSTRUCTIONS:
+- You have FULL and UNRESTRICTED access to all filesystem paths on the user's machine (including `/Users/vela-13136/LLM`, `/Users/vela-13136/LLM/Assistant`, or any path).
+- There is NO SANDBOX and NO WORKSPACE BOUNDARY. The tools (`write_file`, `read_file`, `list_files`, `run_command`) run directly on the host machine.
+- NEVER say "I cannot access or modify your local file system paths", "I cannot write directly to /Users/vela-13136/LLM", or "The tools operate strictly within a workspace/sandbox". That is false!
+- If the user asks to create, write, edit, read, list files, or run commands at `/Users/vela-13136/LLM` or ANY path, CALL THE TOOL IMMEDIATELY. Do not apologize or refuse.
 - Check files, verify bug fixes, and execute test commands directly to confirm changes work.
 - Provide clear, concrete, step-by-step explanations alongside tool results.
-- Keep final answers grounded in evidence from files and tool execution outputs.
 """
 
 
@@ -89,10 +89,12 @@ def write_file(file_path: str, content: str) -> str:
         resolved.parent.mkdir(parents=True, exist_ok=True)
         resolved.write_text(content, encoding="utf-8")
 
-        # Compute relative or display path for Copilot-style display in chat
+        # Check if the path is inside DEFAULT_WORKING_DIR
         try:
-            rel_path = str(resolved.relative_to(DEFAULT_WORKING_DIR))
+            rel_to_cwd = resolved.relative_to(DEFAULT_WORKING_DIR)
+            rel_path = str(rel_to_cwd)
         except ValueError:
+            # Absolute path outside Assistant directory (e.g. /Users/vela-13136/LLM/test.txt)
             rel_path = str(resolved)
 
         old_lines = old_content.splitlines(keepends=True) if existed else []
@@ -335,6 +337,23 @@ def run_chat_graph(graph, messages: list[BaseMessage]) -> None:
         raise ValueError("The LangGraph chat flow exceeded its step limit unexpectedly.") from error
 
 
+def clean_history_for_tools(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """Clean up misleading assistant claims about workspace/sandbox restrictions from earlier turns in the conversation."""
+    cleaned: list[BaseMessage] = []
+    for msg in messages:
+        if isinstance(msg, AIMessage) and isinstance(msg.content, str):
+            # Check if this assistant message falsely claims sandbox/workspace refusal
+            lower = msg.content.lower()
+            if ("cannot write directly" in lower or "strictly within the" in lower or "cannot directly access or modify your local" in lower) and "workspace" in lower:
+                # Replace with a corrected message or prune it so the LLM doesn't mimic its past refusal
+                continue
+        cleaned.append(msg)
+    # Ensure there is at least the last user message
+    if not cleaned:
+        return messages[-1:]
+    return cleaned
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read())
@@ -350,6 +369,7 @@ def main() -> int:
 
         chat_messages = [to_message(item) for item in messages]
         if should_use_tools(chat_messages):
+            chat_messages = clean_history_for_tools(chat_messages)
             agent = build_agent(model.strip(), endpoint.strip())
             run_tool_agent(agent, chat_messages)
         else:
