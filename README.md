@@ -57,7 +57,7 @@ node server.js
 
 Keep the terminal open, then visit:
 
-**http://127.0.0.1:8080/**
+**http://Assistant.localhost:8765/**
 
 The app automatically:
 
@@ -111,7 +111,7 @@ If you launched the app through a VS Code task:
 Find the process listening on the UI port:
 
 ```bash
-lsof -nP -iTCP:8080 -sTCP:LISTEN
+lsof -nP -iTCP:8765 -sTCP:LISTEN
 ```
 
 Check that the entry belongs to this app's `node` process, then send it a
@@ -141,7 +141,7 @@ the macOS app or a service manager, stop it through that app or service manager.
 
 ```bash
 curl --noproxy '*' http://127.0.0.1:11434/api/version
-curl --noproxy '*' -I http://127.0.0.1:8080/
+curl --noproxy '*' -I http://Assistant.localhost:8765/
 ```
 
 Ollama should return version JSON; the UI should return HTTP `200`.
@@ -150,12 +150,24 @@ Ollama should return version JSON; the UI should return HTTP `200`.
 
 | Problem                              | Action                                                                                                                                                                     |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EADDRINUSE` on port 8080          | Check`lsof` as shown above. Reuse the running UI or stop only the conflicting app you own.                                                                               |
+| `EADDRINUSE` on port 8765          | Check`lsof` as shown above. Reuse the running UI or stop only the conflicting app you own.                                                                               |
 | `spawn ollama ENOENT`              | Ensure Ollama is installed and`command -v ollama` finds its executable.                                                                                                  |
 | `Cannot start LangGraph assistant` | Check that`python3` (or `PYTHON_BIN`) exists and has `langgraph`, `langchain-ollama`, and `langchain-core` installed from [requirements.txt](./requirements.txt). |
 | No models appear                     | Check the running Ollama server's model directory. With the server running, use`ollama pull qwen3.5:9b` to download the model there.                                     |
 | Replies feel stuck on large file reviews | The assistant now streams progress, but large attachments can still be slow on local models. Try one file at a time, smaller excerpts, or narrower questions. Requests that run longer than 120 seconds are stopped automatically. |
 | Ollama fails to become ready | Read the terminal error output; try the standalone Ollama command above to diagnose startup. |
 | UI changes do not appear             | Restart`node server.js` and refresh the page. The server loads the HTML at startup.                                                                                      |
-| `/v1` returns 404                  | `/v1` is an API base URL, not a chat page. Open port 8080 for the UI; use `/v1/models` to list models through the compatible API.                                      |
+| `/v1` returns 404                  | `/v1` is an API base URL, not a chat page. Open port 8765 for the UI; use `/v1/models` to list models through the compatible API.                                      |
 | Saved chats are missing              | Check that`chats.sqlite` exists in the app directory and that the app can write to that directory. History is shared by browsers using this local app.                   |
+
+## Remote access
+
+The browser talks only to this server (Ollama is proxied and stays on 127.0.0.1). To reach it from other devices:
+
+```bash
+HOST=0.0.0.0 ASSISTANT_PASSWORD='choose-a-strong-password' node server.js
+```
+
+The server refuses a non-local `HOST` without `ASSISTANT_PASSWORD` (HTTP Basic auth: any username, that password). `PORT` overrides 8765.
+
+From anywhere on the internet, keep the Mac running and tunnel the port, for example `brew install cloudflared && cloudflared tunnel --url http://localhost:8765` (or use Tailscale for a private network). Always use a strong password with a public tunnel.

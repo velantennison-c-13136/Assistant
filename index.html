@@ -1599,7 +1599,7 @@
       controls();
       status('Connecting to Ollama...');
       try {
-        const response = await fetch(`${baseUrl()}/api/tags`, { signal: AbortSignal.timeout(10000) });
+        const response = await fetch('/api/ollama/tags', { signal: AbortSignal.timeout(10000) });
         if (!response.ok) throw new Error(`Ollama returned HTTP ${response.status}.`);
         const data = await response.json();
         if (!Array.isArray(data.models) || data.models.some((item) => typeof item.name !== 'string')) {
@@ -1633,7 +1633,7 @@
       status(`Updating ${model}...`);
       let succeeded = false;
       try {
-        const response = await fetch(`${baseUrl()}/api/pull`, {
+        const response = await fetch('/api/ollama/pull', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ model, stream: true }),

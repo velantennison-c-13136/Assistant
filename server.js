@@ -4,6 +4,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { setTimeout: delay } = require('node:timers/promises');
 const { DatabaseSync } = require('node:sqlite');
@@ -203,7 +204,51 @@ async function streamLangGraphChat({ model, endpoint, messages, signal, response
   });
 }
 
+async function proxyOllama(request, response, target, method) {
+  if (request.method !== method) {
+    response.writeHead(405, { Allow: method });
+    response.end('Method not allowed');
+    return;
+  }
+  const abortController = new AbortController();
+  response.on('close', () => {
+    if (!response.writableEnded) abortController.abort();
+  });
+  const init = { method, signal: abortController.signal };
+  if (method === 'POST') {
+    const body = await readJson(request);
+    if (typeof body?.model !== 'string' || !body.model.trim()) throw new HttpError(400, 'Model is required.');
+    init.headers = { 'Content-Type': 'application/json' };
+    init.body = JSON.stringify({ model: body.model.trim(), stream: true });
+  }
+  let upstream;
+  try {
+    upstream = await fetch(`${ollamaUrl}${target}`, init);
+  } catch {
+    throw new HttpError(502, 'Ollama is not reachable.');
+  }
+  response.writeHead(upstream.status, {
+    'Content-Type': upstream.headers.get('content-type') || 'application/json',
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff'
+  });
+  try {
+    for await (const chunk of upstream.body) response.write(chunk);
+  } catch {
+    // client disconnected or upstream aborted
+  }
+  if (!response.destroyed && !response.writableEnded) response.end();
+}
+
 async function handleApi(request, response, url) {
+  if (url.pathname === '/api/ollama/tags') {
+    await proxyOllama(request, response, '/api/tags', 'GET');
+    return;
+  }
+  if (url.pathname === '/api/ollama/pull') {
+    await proxyOllama(request, response, '/api/pull', 'POST');
+    return;
+  }
   if (url.pathname === '/api/assistant/chat') {
     if (request.method !== 'POST') {
       response.writeHead(405, { Allow: 'POST' });
@@ -283,10 +328,37 @@ async function handleApi(request, response, url) {
   sendJson(response, 404, { error: 'Not found' });
 }
 
+const listenHost = process.env.HOST || '127.0.0.1';
+const listenPort = Number(process.env.PORT) || 8765;
+const accessPassword = process.env.ASSISTANT_PASSWORD || '';
+const accessUser = process.env.ASSISTANT_USER || 'velan';
+const loopbackOnly = ['127.0.0.1', 'localhost', '::1'].includes(listenHost);
+
+function authorized(request) {
+  if (!accessPassword) return true;
+  const header = request.headers.authorization || '';
+  if (!header.startsWith('Basic ')) return false;
+  const supplied = Buffer.from(header.slice(6), 'base64').toString('utf8');
+  const separator = supplied.indexOf(':');
+  const safeEqual = (a, b) => {
+    const left = Buffer.from(a);
+    const right = Buffer.from(b);
+    return left.length === right.length && crypto.timingSafeEqual(left, right);
+  };
+  const userOk = safeEqual(supplied.slice(0, Math.max(separator, 0)), accessUser);
+  const passOk = safeEqual(supplied.slice(separator + 1), accessPassword);
+  return userOk && passOk;
+}
+
 const server = http.createServer((request, response) => {
+  if (!authorized(request)) {
+    response.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Assistant", charset="UTF-8"' });
+    response.end('Authentication required');
+    return;
+  }
   let url;
   try {
-    url = new URL(request.url, 'http://127.0.0.1:8080');
+    url = new URL(request.url, `http://localhost:${listenPort}`);
   } catch {
     sendJson(response, 400, { error: 'Invalid request URL.' });
     return;
@@ -385,7 +457,12 @@ async function ensureOllama() {
   const models = process.env.OLLAMA_MODELS || path.join(os.homedir(), 'LLM', 'Qwen');
   console.log(`Starting Ollama with model storage: ${models}`);
   ollamaProcess = spawn('ollama', ['serve'], {
-    env: { ...process.env, OLLAMA_HOST: '127.0.0.1:11434', OLLAMA_MODELS: models },
+    env: {
+      ...process.env,
+      OLLAMA_HOST: '127.0.0.1:11434',
+      OLLAMA_MODELS: models,
+      OLLAMA_ORIGINS: [process.env.OLLAMA_ORIGINS, 'http://Assistant.localhost:8765'].filter(Boolean).join(',')
+    },
     stdio: 'inherit'
   });
   let childFailure;
@@ -418,10 +495,14 @@ server.on('error', (error) => {
   console.error(`Cannot start chat UI: ${error.message}`);
   void shutdown(1);
 });
-server.listen(8080, '127.0.0.1', async () => {
+if (!loopbackOnly && !accessPassword) {
+  console.error('Refusing to listen on a non-local HOST without ASSISTANT_PASSWORD set.');
+  process.exit(1);
+}
+server.listen(listenPort, listenHost, async () => {
   try {
     await ensureOllama();
-    if (!shuttingDown) console.log('Local Ollama Chat: http://127.0.0.1:8080');
+    if (!shuttingDown) console.log(`Local Ollama Chat: http://${loopbackOnly ? 'Assistant.localhost' : listenHost}:${listenPort}/`);
   } catch (error) {
     console.error(`Chat startup failed: ${error.message}`);
     await shutdown(1);
