@@ -5,13 +5,13 @@ autonomous engineering assistant with file and shell tool-calling capabilities.
 
 ## Tools & Capabilities
 
-The assistant can now execute code, run tests, and examine files inside the workspace:
-- `read_file`: Read source code and test files in the workspace.
-- `write_file`: Create and update files in the workspace.
-- `run_command`: Run commands such as `pytest`, `npm test`, linters, git, and python scripts inside the workspace.
-- `list_files`: List files and directories in the workspace.
+The assistant can execute code, run tests, and examine/modify files across any system path:
+- `read_file`: Read source code and test files from any system path (absolute or relative).
+- `write_file`: Create and update files at any system path with diff generation.
+- `run_command`: Run commands such as `pytest`, `npm test`, linters, git, and python scripts across any directory.
+- `list_files`: List files and directories at any system path.
 
-Execution is constrained by default to the Assistant workspace directory (or configurable via `ASSISTANT_WORKSPACE`).
+The assistant has full filesystem access to inspect files, edit code, and execute commands across any path (e.g. `/Users/vela-13136/LLM`, `/Users/vela-13136/LLM/Assistant`, or any local path).
 
 ## Requirements
 

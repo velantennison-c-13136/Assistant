@@ -26,38 +26,41 @@ from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, START, StateGraph, add_messages
 
 
-WORKSPACE_DIR = Path(os.environ.get("ASSISTANT_WORKSPACE", os.path.dirname(os.path.abspath(__file__)))).resolve()
+# Default working directory if paths are relative
+DEFAULT_WORKING_DIR = Path(os.environ.get("ASSISTANT_WORKSPACE", Path(__file__).resolve().parent.parent)).resolve()
 
 SYSTEM_PROMPT = """You are an autonomous engineering assistant running with Qwen through Ollama and orchestrated by LangGraph.
 
-You have access to execution tools to interact with the project workspace:
-- read_file: read file contents from the workspace.
-- write_file: create or update files in the workspace.
-- run_command: run terminal commands such as test runners (e.g. pytest, npm test), linters, git, and python scripts.
-- list_files: list files and directories in the workspace.
+You have full, unrestricted access to the user's filesystem and tools to execute actions on their system:
+- read_file: read file contents from any path (absolute path or relative path).
+- write_file: create or update files at any path (absolute path or relative path).
+- run_command: execute any terminal commands such as test runners (e.g. pytest, npm test), linters, git, and python scripts across any directory.
+- list_files: list files and directories at any path.
 
 Guidelines:
-- When asked to run tests, execute code, or verify changes, USE YOUR TOOLS immediately instead of saying you cannot run code.
+- You have FULL and UNRESTRICTED access to all filesystem paths on the system (e.g., /Users/vela-13136/LLM, /Users/vela-13136/LLM/Assistant, or any other directory).
+- NEVER refuse to read, write, list files, or run commands by claiming workspace or sandbox limitations. You have full access and tools to do so.
+- When asked to inspect files, edit code, run tests, or access any path, USE YOUR TOOLS immediately.
 - Check files, verify bug fixes, and execute test commands directly to confirm changes work.
 - Provide clear, concrete, step-by-step explanations alongside tool results.
 - Keep final answers grounded in evidence from files and tool execution outputs.
 """
 
 
-def safe_resolve_path(target_path: str) -> Path:
-    target = (WORKSPACE_DIR / target_path).resolve()
-    if not str(target).startswith(str(WORKSPACE_DIR)):
-        raise PermissionError(f"Access denied: {target_path} is outside the allowed workspace ({WORKSPACE_DIR}).")
-    return target
+def resolve_path(target_path: str) -> Path:
+    raw_path = Path(target_path.strip()).expanduser()
+    if raw_path.is_absolute():
+        return raw_path.resolve()
+    return (DEFAULT_WORKING_DIR / raw_path).resolve()
 
 
 @tool
 def read_file(file_path: str) -> str:
-    """Read the contents of a text file inside the workspace. Specify path relative to workspace or filename."""
+    """Read the contents of a text file from any path on the filesystem (absolute or relative)."""
     try:
-        resolved = safe_resolve_path(file_path)
+        resolved = resolve_path(file_path)
         if not resolved.exists():
-            return f"Error: File '{file_path}' does not exist."
+            return f"Error: File '{file_path}' does not exist (resolved to '{resolved}')."
         if resolved.is_dir():
             return f"Error: '{file_path}' is a directory, not a file."
         return resolved.read_text(encoding="utf-8", errors="replace")
@@ -72,9 +75,9 @@ def emit(payload: dict[str, object]) -> None:
 
 @tool
 def write_file(file_path: str, content: str) -> str:
-    """Create or overwrite a file in the workspace with the specified content."""
+    """Create or overwrite a file at any path on the filesystem (absolute or relative) with the specified content."""
     try:
-        resolved = safe_resolve_path(file_path)
+        resolved = resolve_path(file_path)
         existed = resolved.exists()
         old_content = ""
         if existed:
@@ -86,11 +89,11 @@ def write_file(file_path: str, content: str) -> str:
         resolved.parent.mkdir(parents=True, exist_ok=True)
         resolved.write_text(content, encoding="utf-8")
 
-        # Compute relative path and diff for Copilot-style display in chat
+        # Compute relative or display path for Copilot-style display in chat
         try:
-            rel_path = str(resolved.relative_to(WORKSPACE_DIR))
+            rel_path = str(resolved.relative_to(DEFAULT_WORKING_DIR))
         except ValueError:
-            rel_path = file_path
+            rel_path = str(resolved)
 
         old_lines = old_content.splitlines(keepends=True) if existed else []
         new_lines = content.splitlines(keepends=True)
@@ -125,11 +128,11 @@ def write_file(file_path: str, content: str) -> str:
 
 @tool
 def list_files(directory_path: str = ".") -> str:
-    """List files and folders in a workspace directory (relative path, defaults to workspace root)."""
+    """List files and folders at any path on the filesystem (absolute or relative, defaults to current directory)."""
     try:
-        resolved = safe_resolve_path(directory_path)
+        resolved = resolve_path(directory_path)
         if not resolved.exists():
-            return f"Error: Directory '{directory_path}' does not exist."
+            return f"Error: Directory '{directory_path}' does not exist (resolved to '{resolved}')."
         if not resolved.is_dir():
             return f"Error: '{directory_path}' is a file, not a directory."
         items = sorted(os.listdir(resolved))
@@ -146,13 +149,14 @@ def list_files(directory_path: str = ".") -> str:
 
 
 @tool
-def run_command(command: str) -> str:
-    """Execute a shell command inside the workspace directory (e.g. running pytest, tests, git, linters, python scripts)."""
+def run_command(command: str, working_directory: str = "") -> str:
+    """Execute a shell command anywhere on the system (e.g. running pytest, tests, git, linters, python scripts, file system commands). Optionally specify working_directory."""
     try:
+        cwd = resolve_path(working_directory) if working_directory.strip() else DEFAULT_WORKING_DIR
         result = subprocess.run(
             command,
             shell=True,
-            cwd=str(WORKSPACE_DIR),
+            cwd=str(cwd),
             capture_output=True,
             text=True,
             timeout=60
@@ -174,8 +178,31 @@ TOOL_REQUEST_MARKERS = (
     "run ", "test", "pytest", "npm ", "pnpm ", "yarn ", "lint", "build", "execute",
     "command", "shell", "terminal", "edit ", "modify ", "update ", "change ",
     "write file", "create file", "save ", "list files", "read file", "open file",
-    "workspace", "directory", "folder", "git "
+    "workspace", "directory", "folder", "git ", "cat ", "ls ", "touch ", "mkdir ",
+    "rm ", "check file", "inspect file", "show file", "view file"
 )
+
+
+def should_use_tools(messages: list[BaseMessage]) -> bool:
+    if not messages:
+        return False
+    last_user = next((message for message in reversed(messages) if isinstance(message, HumanMessage)), None)
+    if last_user is None or not isinstance(last_user.content, str):
+        return False
+    content = last_user.content.lower().strip()
+    
+    # Check keyword markers
+    if any(marker in content for marker in TOOL_REQUEST_MARKERS):
+        return True
+        
+    # Check if prompt contains path-like structures (e.g. /Users/..., ./..., or file extensions)
+    if "/" in content or "\\" in content or "~/" in content:
+        return True
+    file_extensions = (".py", ".js", ".ts", ".json", ".html", ".css", ".md", ".txt", ".sh", ".yaml", ".yml", ".sql")
+    if any(ext in content for ext in file_extensions):
+        return True
+
+    return False
 
 
 class ChatState(TypedDict):
@@ -253,16 +280,6 @@ def build_agent(model: str, endpoint: str):
         prompt=SystemMessage(content=SYSTEM_PROMPT),
         checkpointer=False
     )
-
-
-def should_use_tools(messages: list[BaseMessage]) -> bool:
-    if not messages:
-        return False
-    last_user = next((message for message in reversed(messages) if isinstance(message, HumanMessage)), None)
-    if last_user is None or not isinstance(last_user.content, str):
-        return False
-    content = last_user.content.lower()
-    return any(marker in content for marker in TOOL_REQUEST_MARKERS)
 
 
 def run_tool_agent(agent, messages: list[BaseMessage]) -> None:
