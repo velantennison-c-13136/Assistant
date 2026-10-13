@@ -11,8 +11,8 @@
     main { display: grid; grid-template-columns: 260px minmax(0, 1fr); height: 100dvh; }
     button, input, select, textarea { font: inherit; color: inherit; }
     button, summary, .attach-label { cursor: pointer; }
-    button { background: transparent; border: 1px solid #454545; border-radius: 9px; padding: 10px 12px; min-height: 40px; }
-    button:hover:not(:disabled), .attach-label:hover { background: #393939; }
+    button { background: transparent; border: 1px solid #454545; border-radius: 9px; padding: 10px 12px; min-height: 40px; transition: background .15s, border-color .15s, color .15s, box-shadow .15s; }
+    button:hover:not(:disabled), .attach-label:hover { background: #30363d; border-color: #6e7681; }
     button:disabled { opacity: .4; cursor: not-allowed; }
     :focus-visible { outline: 2px solid #a2c8ff; outline-offset: 3px; }
     p { line-height: 1.6; color: #aaa; }
@@ -140,17 +140,16 @@
     .copilot-file-card {
       margin: 18px 0;
       border: 1px solid #30363d;
-      border-radius: 10px;
+      border-radius: 6px;
       background: #0d1117;
       overflow: hidden;
       font-size: 13px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
     }
     .copilot-file-header {
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 11px 14px;
+      gap: 6px;
+      padding: 3px 8px;
       background: #161b22;
       border-bottom: 1px solid #30363d;
       user-select: none;
@@ -163,24 +162,26 @@
       flex-shrink: 0;
     }
     .copilot-file-icon svg {
-      width: 16px;
-      height: 16px;
+      width: 14px;
+      height: 14px;
       fill: currentColor;
     }
     .copilot-file-path {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       color: #e6edf3;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       flex: 1;
+      min-width: 0;
     }
     .copilot-file-badge {
-      font-size: 10.5px;
-      padding: 2px 7px;
-      border-radius: 12px;
+      font-size: 9px;
+      padding: 1px 4px;
+      border-radius: 4px;
+      flex-shrink: 0;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.35px;
@@ -200,52 +201,137 @@
       font-size: 11px;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       display: flex;
-      gap: 6px;
+      gap: 4px;
       align-items: center;
+      flex-shrink: 0;
     }
     .copilot-file-stats .stat-add {
       color: #7ee787;
-      background: rgba(46, 160, 67, 0.1);
-      border: 1px solid rgba(46, 160, 67, 0.25);
-      padding: 2px 6px;
-      border-radius: 10px;
       font-weight: 600;
     }
     .copilot-file-stats .stat-del {
       color: #ffa198;
-      background: rgba(248, 81, 73, 0.1);
-      border: 1px solid rgba(248, 81, 73, 0.25);
-      padding: 2px 6px;
-      border-radius: 10px;
       font-weight: 600;
     }
-    .copilot-file-toggle {
-      background: #1f242c;
-      border: 1px solid #30363d;
-      color: #c9d1d9;
-      padding: 5px 10px;
-      font-size: 11px;
-      border-radius: 6px;
-      cursor: pointer;
+    .copilot-file-toggle, .copilot-file-maximize {
+      min-height: 24px;
+      width: 24px;
+      flex-shrink: 0;
+      background: transparent;
+      border: 1px solid transparent;
+      color: #d1d7e0;
+      padding: 0;
+      font-size: 0;
+      border-radius: 4px;
       display: inline-flex;
       align-items: center;
-      gap: 5px;
-      font-weight: 500;
-      transition: background 0.15s, border-color 0.15s;
+      justify-content: center;
+      font-weight: 550;
+      white-space: nowrap;
     }
-    .copilot-file-toggle:hover {
-      background: #30363d;
-      color: #f0f6fc;
-      border-color: #6e7681;
+    .copilot-file-toggle:hover, .copilot-file-maximize:hover {
+      background: #292f38;
+      color: #fff;
+      border-color: #58616d;
+    }
+    .copilot-file-maximize svg { width: 14px; height: 14px; }
+    #file-diff-dialog {
+      width: calc(100vw - 32px);
+      max-width: 1200px;
+      height: calc(100dvh - 48px);
+      max-height: 900px;
+      padding: 0;
+      border: 1px solid #3d444d;
+      border-radius: 10px;
+      background: #0d1117;
+      color: #e6edf3;
+      overflow: hidden;
+    }
+    #file-diff-dialog[open] { display: flex; flex-direction: column; }
+    #file-diff-dialog::backdrop { background: rgba(0, 0, 0, .65); }
+    .file-diff-dialog-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      flex-shrink: 0;
+    }
+    #file-diff-title {
+      flex: 1;
+      min-width: 0;
+      margin: 0;
+      font-size: 14px;
+      overflow-wrap: anywhere;
+    }
+    #file-diff-close { padding: 5px 10px; min-height: 30px; flex-shrink: 0; }
+    #file-diff-view { flex: 1; min-height: 0; overflow: auto; }
+    #file-diff-view .copilot-file-diff { font-size: 13px; }
+    .copilot-file-toggle::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-right: 1.5px solid currentColor;
+      border-bottom: 1.5px solid currentColor;
+      transform: translateY(-2px) rotate(45deg);
+      transition: transform .15s;
+    }
+    .copilot-file-toggle[aria-expanded="false"]::before {
+      transform: translateY(1px) rotate(-45deg);
     }
     .copilot-file-body {
       display: block;
-      max-height: 440px;
+      max-height: 180px;
       overflow: auto;
       background: #0d1117;
     }
     .copilot-file-body.collapsed {
       display: none;
+    }
+    #file-changes {
+      flex-shrink: 0;
+      width: calc(100% - 48px);
+      max-width: 760px;
+      max-height: min(20vh, 180px);
+      margin: 0 auto 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    #file-changes[hidden] { display: none; }
+    .file-changes-heading {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 2px;
+      color: #aeb6c2;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .file-changes-heading::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #3fb950;
+      box-shadow: 0 0 0 3px rgba(63, 185, 80, .12);
+    }
+    #file-change-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+      gap: 4px;
+      align-items: start;
+      grid-auto-rows: max-content;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 1px 2px 4px;
+    }
+    #file-change-list .copilot-file-card { min-width: 0; margin: 0; }
+    #file-change-list .copilot-file-card:has(.copilot-file-body:not(.collapsed)) {
+      grid-column: 1 / -1;
     }
     .copilot-file-diff {
       margin: 0;
@@ -255,6 +341,13 @@
       line-height: 1.5;
       white-space: pre;
       overflow-x: auto;
+    }
+    .copilot-diff-number {
+      flex: 0 0 34px;
+      color: #7d8590;
+      text-align: right;
+      padding-right: 8px;
+      user-select: none;
     }
     .copilot-diff-line {
       padding: 0 12px;
@@ -418,10 +511,10 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 6px 12px;
-      background: #30363d;
-      border: 1px solid #484f58;
-      border-radius: 20px;
+      padding: 7px 12px;
+      background: #252b33;
+      border: 1px solid #454d57;
+      border-radius: 9px;
       font-size: 12px;
       font-weight: 500;
       color: #c9d1d9;
@@ -430,8 +523,8 @@
       transition: background 0.15s, border-color 0.15s;
     }
     .attach-label:hover {
-      background: #3c444d;
-      border-color: #6e7681;
+      background: #303943;
+      border-color: #697583;
       color: #f0f6fc;
     }
     #files {
@@ -458,24 +551,24 @@
     #send {
       margin-left: auto;
       border: 0;
-      background: #f0f6fc;
-      color: #161b22;
+      background: #2f81f7;
+      color: #fff;
       font-weight: 600;
-      border-radius: 20px;
-      padding: 7px 16px;
+      border-radius: 9px;
+      padding: 8px 16px;
       font-size: 13px;
       display: inline-flex;
       align-items: center;
       gap: 5px;
       cursor: pointer;
-      transition: background 0.15s, opacity 0.15s;
     }
     #send:hover:not(:disabled) {
-      background: #ffffff;
-      box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+      background: #4493f8;
+      border-color: transparent;
+      box-shadow: 0 2px 8px rgba(47, 129, 247, .25);
     }
     #send:disabled {
-      background: #484f58;
+      background: #30363d;
       color: #8b949e;
       opacity: 0.6;
       cursor: not-allowed;
@@ -485,11 +578,15 @@
     }
     #stop {
       border: 1px solid #f85149;
-      color: #f85149;
-      background: rgba(248, 81, 73, 0.1);
-      border-radius: 20px;
-      padding: 6px 14px;
+      color: #ff938a;
+      background: rgba(248, 81, 73, 0.08);
+      border-radius: 9px;
+      padding: 7px 13px;
       font-size: 12px;
+    }
+    #stop:hover:not(:disabled) {
+      background: rgba(248, 81, 73, 0.16);
+      border-color: #ff7b72;
     }
     .footer { flex-shrink: 0; max-width: 800px; width: 100%; padding: 10px 24px 14px; margin: 0 auto; text-align: center; }
     #status { font-size: 11px; color: #bbb; overflow-wrap: anywhere; margin-bottom: 5px; }
@@ -514,13 +611,11 @@
       .suggestions { margin-top: 20px; }
       .suggestions span { display: block; margin: 4px 0 0; }
       #composer { width: calc(100% - 24px); padding: 12px; border-radius: 20px; }
+      #file-changes { width: calc(100% - 24px); max-height: min(18vh, 150px); }
       .footer { padding: 8px 16px; }
       .content { font-size: 14px; }
     }
     @media (max-width: 520px) {
-      .copilot-file-header { flex-wrap: wrap; }
-      .copilot-file-path { flex: 1 1 calc(100% - 28px); }
-      .copilot-file-toggle { margin-left: auto; }
       .copilot-file-diff { font-size: 11.5px; }
       .copilot-diff-line { padding-right: 10px; padding-left: 10px; }
     }
@@ -566,6 +661,10 @@
         </div>
       </div>
     </section>
+    <section id="file-changes" aria-label="Changed files" hidden>
+      <div class="file-changes-heading">Changed files</div>
+      <div id="file-change-list"></div>
+    </section>
     <form id="composer">
       <label for="prompt" class="sr-only">Your message</label>
       <textarea id="prompt" placeholder="Message your LangGraph assistant..." rows="2"></textarea>
@@ -586,6 +685,13 @@
     </div>
     </div>
   </main>
+  <dialog id="file-diff-dialog" aria-labelledby="file-diff-title">
+    <div class="file-diff-dialog-header">
+      <h2 id="file-diff-title"></h2>
+      <button id="file-diff-close" type="button" autofocus>Close</button>
+    </div>
+    <div id="file-diff-view"></div>
+  </dialog>
   <script>
     'use strict';
     const $ = (id) => document.getElementById(id);
@@ -598,6 +704,20 @@
       }
     });
     const history = [];
+    const chatFileChanges = new Map();
+    $('file-diff-close').addEventListener('click', () => $('file-diff-dialog').close());
+    $('file-diff-dialog').addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        $('file-diff-dialog').close();
+      }
+    });
+    $('file-diff-dialog').addEventListener('close', () => {
+      const card = chatFileChanges.get($('file-diff-dialog').dataset.path)?.card;
+      $('file-diff-view').replaceChildren();
+      delete $('file-diff-dialog').dataset.path;
+      card?.querySelector('.copilot-file-maximize').focus();
+    });
     let connected = false;
     let busy = false;
     let controller = null;
@@ -673,10 +793,14 @@
     }
 
     function newConversation() {
+      $('file-diff-dialog').close();
       activeChatId = null;
       history.length = 0;
       $('messages').replaceChildren();
       $('messages').append(emptyState.cloneNode(true));
+      $('file-change-list').replaceChildren();
+      chatFileChanges.clear();
+      $('file-changes').hidden = true;
       attachments.length = 0;
       renderAttachments();
       $('prompt').value = '';
@@ -1031,9 +1155,153 @@
       if (!container.childNodes.length) container.textContent = text;
     }
 
+    function fileLines(content) {
+      return content.match(/[^\n]*\n|[^\n]+$/g) || [];
+    }
+
+    function originalFileLines(fileEdit) {
+      const latest = fileLines(fileEdit.content);
+      if (fileEdit.status.toLowerCase() === 'created') return [];
+      if (!fileEdit.diff.trim()) return latest;
+      const rows = fileEdit.diff.split('\n');
+      // The agent joins difflib rows that already retain their newline characters.
+      const retainedNewlines = rows.some((row, index) =>
+        /^[ +\-]/.test(row) && !/^(---|\+\+\+)/.test(row) && rows[index + 1] === '');
+      const original = [];
+      let cursor = 0;
+      let index = 0;
+      while (index < rows.length) {
+        const hunk = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(rows[index++]);
+        if (!hunk) continue;
+        const oldCount = Number(hunk[2] ?? 1);
+        const newCount = Number(hunk[4] ?? 1);
+        const start = Number(hunk[3]) - (newCount ? 1 : 0);
+        if (start < cursor || start > latest.length) throw new Error('Invalid diff hunk position.');
+        original.push(...latest.slice(cursor, start));
+        cursor = start;
+        let oldSeen = 0;
+        let newSeen = 0;
+        while (index < rows.length && !rows[index].startsWith('@@')) {
+          const row = rows[index++];
+          if (!row || row.startsWith('\\')) continue;
+          const kind = row[0];
+          if (![' ', '+', '-'].includes(kind)) throw new Error('Invalid diff row.');
+          let token = row.slice(1);
+          if (retainedNewlines ? rows[index] === '' : true) token += '\n';
+          if (!retainedNewlines && rows[index]?.startsWith('\\')) token = token.replace(/\n$/, '');
+          if (kind !== '-') {
+            const actual = latest[cursor++];
+            if (actual === undefined || actual.replace(/\r?\n$/, '') !== token.replace(/\r?\n$/, '')) {
+              throw new Error('Diff does not match the saved file content.');
+            }
+            if (kind === ' ') original.push(actual);
+            newSeen++;
+          } else {
+            original.push(token);
+          }
+          if (kind !== '+') oldSeen++;
+        }
+        if (oldSeen !== oldCount || newSeen !== newCount) throw new Error('Incomplete diff hunk.');
+      }
+      if (!rows.some(row => row.startsWith('@@'))) throw new Error('Diff has no valid hunks.');
+      original.push(...latest.slice(cursor));
+      return original;
+    }
+
+    function inlineFileDiff(original, latest) {
+      const edits = [];
+      function scores(a, b) {
+        const row = new Uint32Array(b.length + 1);
+        for (const line of a) {
+          let diagonal = 0;
+          for (let j = 1; j <= b.length; j++) {
+            const above = row[j];
+            row[j] = line === b[j - 1] ? diagonal + 1 : Math.max(row[j], row[j - 1]);
+            diagonal = above;
+          }
+        }
+        return row;
+      }
+      // Hirschberg's LCS keeps memory linear even for large file replacements.
+      function compare(a, b) {
+        let prefix = 0;
+        while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) {
+          edits.push(' ' + a[prefix++]);
+        }
+        a = a.slice(prefix);
+        b = b.slice(prefix);
+        let suffix = 0;
+        while (suffix < a.length && suffix < b.length &&
+               a[a.length - suffix - 1] === b[b.length - suffix - 1]) suffix++;
+        const tail = suffix ? a.slice(-suffix) : [];
+        if (suffix) { a = a.slice(0, -suffix); b = b.slice(0, -suffix); }
+        if (!a.length) {
+          edits.push(...b.map(line => '+' + line));
+        } else if (!b.length) {
+          edits.push(...a.map(line => '-' + line));
+        } else if (a.length === 1) {
+          const match = b.indexOf(a[0]);
+          if (match < 0) {
+            edits.push('-' + a[0], ...b.map(line => '+' + line));
+          } else {
+            edits.push(...b.slice(0, match).map(line => '+' + line), ' ' + a[0],
+              ...b.slice(match + 1).map(line => '+' + line));
+          }
+        } else {
+          const midpoint = Math.floor(a.length / 2);
+          const left = scores(a.slice(0, midpoint), b);
+          const right = scores(a.slice(midpoint).reverse(), [...b].reverse());
+          let split = 0;
+          for (let j = 1; j <= b.length; j++) {
+            if (left[j] + right[b.length - j] > left[split] + right[b.length - split]) split = j;
+          }
+          compare(a.slice(0, midpoint), b.slice(0, split));
+          compare(a.slice(midpoint), b.slice(split));
+        }
+        edits.push(...tail.map(line => ' ' + line));
+      }
+      compare(original, latest);
+      const additions = edits.filter(line => line[0] === '+').length;
+      const deletions = edits.filter(line => line[0] === '-').length;
+      const ranges = [];
+      edits.forEach((line, index) => {
+        if (line[0] === ' ') return;
+        const start = Math.max(0, index - 3);
+        const end = Math.min(edits.length, index + 4);
+        const previous = ranges.at(-1);
+        if (previous && start <= previous.end) previous.end = end;
+        else ranges.push({ start, end });
+      });
+      const diff = [];
+      let oldLine = 1;
+      let newLine = 1;
+      let cursor = 0;
+      for (const { start, end } of ranges) {
+        while (cursor < start) {
+          if (edits[cursor][0] !== '+') oldLine++;
+          if (edits[cursor++][0] !== '-') newLine++;
+        }
+        const hunk = edits.slice(start, end);
+        const oldCount = hunk.filter(line => line[0] !== '+').length;
+        const newCount = hunk.filter(line => line[0] !== '-').length;
+        diff.push(`@@ -${oldCount ? oldLine : oldLine - 1},${oldCount} +${newCount ? newLine : newLine - 1},${newCount} @@`);
+        for (const line of hunk) {
+          diff.push(line.replace(/\n$/, ''));
+          if (!line.endsWith('\n')) diff.push('\\ No newline at end of file');
+          if (line[0] !== '+') oldLine++;
+          if (line[0] !== '-') newLine++;
+          cursor++;
+        }
+      }
+      return { diff: diff.join('\n'), additions, deletions };
+    }
+
     function renderDiffLines(container, diffText) {
       const lines = diffText.split('\n');
+      let oldLine = 0;
+      let newLine = 0;
       for (const line of lines) {
+        if (!line) continue;
         const lineElem = document.createElement('div');
         lineElem.className = 'copilot-diff-line';
 
@@ -1044,10 +1312,15 @@
         contentElem.className = 'copilot-diff-content';
 
         if (line.startsWith('@@')) {
+          const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(line);
+          if (hunk) { oldLine = Number(hunk[1]); newLine = Number(hunk[2]); }
           lineElem.classList.add('hunk');
           prefixElem.textContent = ' ';
           contentElem.textContent = line;
-        } else if (line.startsWith('+++') || line.startsWith('---')) {
+        } else if (line.startsWith('\\ No newline')) {
+          lineElem.classList.add('hunk');
+          contentElem.textContent = line;
+        } else if (/^(--- a\/|\+\+\+ b\/)/.test(line)) {
           lineElem.classList.add('header');
           prefixElem.textContent = ' ';
           contentElem.textContent = line;
@@ -1069,6 +1342,14 @@
           if (!content.trim()) lineElem.classList.add('blank');
         }
 
+        if (!lineElem.classList.contains('hunk') && !lineElem.classList.contains('header')) {
+          const oldNumber = document.createElement('span');
+          const newNumber = document.createElement('span');
+          oldNumber.className = newNumber.className = 'copilot-diff-number';
+          oldNumber.textContent = line[0] === '+' ? '' : String(oldLine++);
+          newNumber.textContent = line[0] === '-' ? '' : String(newLine++);
+          lineElem.append(oldNumber, newNumber);
+        }
         lineElem.append(prefixElem, contentElem);
         container.append(lineElem);
       }
@@ -1114,18 +1395,34 @@
       const toggleBtn = document.createElement('button');
       toggleBtn.type = 'button';
       toggleBtn.className = 'copilot-file-toggle';
-      toggleBtn.textContent = 'Hide diff';
+      toggleBtn.title = 'Toggle file diff';
+      toggleBtn.textContent = 'Show diff';
+      toggleBtn.setAttribute('aria-label', `Show diff for ${fileEdit.path}`);
+      toggleBtn.setAttribute('aria-expanded', 'false');
 
-      header.append(icon, pathElem, statusBadge, stats, toggleBtn);
+      const maximizeBtn = document.createElement('button');
+      maximizeBtn.type = 'button';
+      maximizeBtn.className = 'copilot-file-maximize';
+      maximizeBtn.title = 'Maximize diff';
+      maximizeBtn.setAttribute('aria-label', `Maximize diff for ${fileEdit.path}`);
+      maximizeBtn.setAttribute('aria-haspopup', 'dialog');
+      maximizeBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M6 2H2v4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg>';
+
+      header.append(icon, pathElem, statusBadge, stats, toggleBtn, maximizeBtn);
 
       const body = document.createElement('div');
-      body.className = 'copilot-file-body';
+      body.className = 'copilot-file-body collapsed';
 
       const diffPre = document.createElement('pre');
       diffPre.className = 'copilot-file-diff';
 
       if (fileEdit.diff && fileEdit.diff.trim()) {
         renderDiffLines(diffPre, fileEdit.diff);
+      } else if (fileEdit.additions === 0 && fileEdit.deletions === 0) {
+        const notice = document.createElement('div');
+        notice.className = 'copilot-diff-line ctx';
+        notice.textContent = 'No net changes in this chat.';
+        diffPre.append(notice);
       } else if (fileEdit.content) {
         const contentLines = fileEdit.content.split('\n');
         for (const line of contentLines) {
@@ -1150,13 +1447,59 @@
 
       body.append(diffPre);
       card.append(header, body);
+      maximizeBtn.addEventListener('click', () => {
+        $('file-diff-title').textContent = fileEdit.path;
+        $('file-diff-dialog').dataset.path = fileEdit.path;
+        $('file-diff-view').replaceChildren(diffPre.cloneNode(true));
+        $('file-diff-dialog').showModal();
+      });
 
       toggleBtn.addEventListener('click', () => {
         const isCollapsed = body.classList.toggle('collapsed');
         toggleBtn.textContent = isCollapsed ? 'Show diff' : 'Hide diff';
+        toggleBtn.setAttribute('aria-label', `${isCollapsed ? 'Show' : 'Hide'} diff for ${fileEdit.path}`);
+        toggleBtn.setAttribute('aria-expanded', String(!isCollapsed));
       });
 
       return card;
+    }
+
+    function showFileEdit(fileEdit) {
+      const list = $('file-change-list');
+      try {
+        if (!fileEdit || typeof fileEdit.path !== 'string' || typeof fileEdit.content !== 'string' ||
+            typeof fileEdit.status !== 'string' || typeof fileEdit.diff !== 'string') {
+          throw new Error('File edit is missing its path, content, status, or diff.');
+        }
+        const previous = chatFileChanges.get(fileEdit.path);
+        const original = previous ? previous.original : originalFileLines(fileEdit);
+        const cumulative = { ...fileEdit, status: previous?.status ?? fileEdit.status,
+          ...inlineFileDiff(original, fileLines(fileEdit.content)) };
+        const card = createCopilotFileCard(cumulative);
+        if (previous) {
+          if (previous.card.querySelector('.copilot-file-toggle').getAttribute('aria-expanded') === 'true') {
+            card.querySelector('.copilot-file-toggle').click();
+          }
+          previous.card.replaceWith(card);
+        } else {
+          list.append(card);
+        }
+        chatFileChanges.set(fileEdit.path, { original, status: cumulative.status, card });
+        if ($('file-diff-dialog').open && $('file-diff-dialog').dataset.path === fileEdit.path) {
+          $('file-diff-view').replaceChildren(card.querySelector('.copilot-file-diff').cloneNode(true));
+        }
+        $('file-changes').hidden = false;
+        if (!previous) list.scrollTop = list.scrollHeight;
+      } catch (error) {
+        console.error('Cannot render cumulative file diff:', error);
+        const notice = document.createElement('div');
+        notice.className = 'hint';
+        notice.setAttribute('role', 'alert');
+        notice.textContent = `Cannot show cumulative diff for ${fileEdit?.path || 'file'}: ${error.message}`;
+        list.append(notice);
+        $('file-changes').hidden = false;
+        status(notice.textContent, true);
+      }
     }
 
     function setMessageContent(node, text, formatted = false) {
@@ -1180,10 +1523,7 @@
       setMessageContent(content, text, role === 'assistant');
       article.append(heading, content);
       if (Array.isArray(fileEdits) && fileEdits.length) {
-        for (const edit of fileEdits) {
-          const card = createCopilotFileCard(edit);
-          article.insertBefore(card, content);
-        }
+        for (const edit of fileEdits) showFileEdit(edit);
       }
       $('messages').append(article);
       $('messages').scrollTop = $('messages').scrollHeight;
@@ -1393,10 +1733,7 @@
         await readStream(response, (chunk) => {
           if (chunk.file_edit) {
             fileEdits.push(chunk.file_edit);
-            const card = createCopilotFileCard(chunk.file_edit);
-            reply.article.insertBefore(card, reply.content);
-            const follow = $('messages').scrollHeight - $('messages').scrollTop - $('messages').clientHeight < 100;
-            if (follow) $('messages').scrollTop = $('messages').scrollHeight;
+            showFileEdit(chunk.file_edit);
           }
           if (chunk.message?.thinking) {
             thinking += chunk.message.thinking;

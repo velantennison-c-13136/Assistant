@@ -13,6 +13,19 @@ The assistant can execute code, run tests, and examine/modify files across any s
 
 The assistant has full filesystem access to inspect files, edit code, and execute commands across any path (e.g. `/Users/vela-13136/LLM`, `/Users/vela-13136/LLM/Assistant`, or any local path).
 
+### Changed files
+
+The compact panel above the message input shows one card per file in the current
+chat. Repeated edits update that card's cumulative diff, comparing the content
+before its first edit with the latest content. Expand a card to see removed and
+added lines together, with original/current line numbers and nearby context.
+Counts reflect net changes, not the sum of intermediate edits. Reopening a saved
+chat reconstructs the same view; starting or switching chats resets the panel.
+Each card also has a maximize button for a large, scrollable diff viewer. Close
+the viewer with its Close button or Escape to return to the compact panel.
+
+Run the diff regression tests with `node --test tests/file-diff.test.js`.
+
 ## Requirements
 
 - Node.js 22.13 or newer (uses the built-in `node:sqlite` module).
