@@ -1,7 +1,17 @@
 # Personal Assistant: Start and Stop
 
-Local chat UI powered by Qwen through Ollama, with LangGraph handling the
-assistant workflow.
+Local chat UI powered by Qwen through Ollama, with LangGraph handling an
+autonomous engineering assistant with file and shell tool-calling capabilities.
+
+## Tools & Capabilities
+
+The assistant can now execute code, run tests, and examine files inside the workspace:
+- `read_file`: Read source code and test files in the workspace.
+- `write_file`: Create and update files in the workspace.
+- `run_command`: Run commands such as `pytest`, `npm test`, linters, git, and python scripts inside the workspace.
+- `list_files`: List files and directories in the workspace.
+
+Execution is constrained by default to the Assistant workspace directory (or configurable via `ASSISTANT_WORKSPACE`).
 
 ## Requirements
 
