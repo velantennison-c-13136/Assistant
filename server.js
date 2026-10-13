@@ -123,10 +123,23 @@ function saveChatsAtomically(chats) {
   }
 }
 
+function sanitizePythonStderr(stderr) {
+  return stderr
+    .split(/\r?\n/)
+    .filter((line) => line.trim() && ![
+      'NotOpenSSLWarning',
+      'LangChainPendingDeprecationWarning',
+      'warnings.warn(',
+      'JsonPlusSerializer'
+    ].some((token) => line.includes(token)))
+    .join('\n')
+    .trim();
+}
+
 async function streamLangGraphChat({ model, endpoint, messages, signal, response }) {
   return await new Promise((resolve, reject) => {
     const child = spawn(pythonBin, [langGraphScript], {
-      env: { ...process.env, PYTHONUNBUFFERED: '1' },
+      env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONWARNINGS: 'ignore' },
       stdio: ['pipe', 'pipe', 'pipe']
     });
     let stderr = '';
@@ -174,7 +187,7 @@ async function streamLangGraphChat({ model, endpoint, messages, signal, response
         return;
       }
       if (code !== 0) {
-        const detail = stderr.trim() || `LangGraph exited with ${signalName || code}.`;
+        const detail = sanitizePythonStderr(stderr) || `LangGraph exited with ${signalName || code}.`;
         emitError(detail);
         finish(new HttpError(500, detail));
         return;

@@ -135,6 +135,130 @@
     .token-operator { color: #56b6c2; }
     .token-property { color: #abb2bf; }
     .message details { margin-bottom: 12px; color: #aaa; }
+
+    /* Copilot-style File Edit Widget */
+    .copilot-file-card {
+      margin: 12px 0;
+      border: 1px solid #3c3c3c;
+      border-radius: 8px;
+      background: #1e1e1e;
+      overflow: hidden;
+      font-size: 13px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    }
+    .copilot-file-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #252526;
+      border-bottom: 1px solid #333333;
+      user-select: none;
+    }
+    .copilot-file-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #3794ff;
+      flex-shrink: 0;
+    }
+    .copilot-file-icon svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+    }
+    .copilot-file-path {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-weight: 550;
+      color: #cccccc;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+    .copilot-file-badge {
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .copilot-file-badge.created {
+      background: rgba(46, 160, 67, 0.2);
+      color: #3fb950;
+      border: 1px solid rgba(46, 160, 67, 0.4);
+    }
+    .copilot-file-badge.modified {
+      background: rgba(227, 179, 65, 0.2);
+      color: #e3b341;
+      border: 1px solid rgba(227, 179, 65, 0.4);
+    }
+    .copilot-file-stats {
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      display: flex;
+      gap: 6px;
+      margin-left: 2px;
+    }
+    .copilot-file-stats .stat-add { color: #3fb950; font-weight: 600; }
+    .copilot-file-stats .stat-del { color: #f85149; font-weight: 600; }
+    .copilot-file-toggle {
+      background: transparent;
+      border: 1px solid #444;
+      color: #bbb;
+      padding: 3px 8px;
+      font-size: 11px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: 6px;
+    }
+    .copilot-file-toggle:hover {
+      background: #333;
+      color: #fff;
+      border-color: #555;
+    }
+    .copilot-file-body {
+      display: block;
+      max-height: 400px;
+      overflow: auto;
+      background: #181818;
+    }
+    .copilot-file-body.collapsed {
+      display: none;
+    }
+    .copilot-file-diff {
+      margin: 0;
+      padding: 8px 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre;
+      overflow-x: auto;
+    }
+    .copilot-diff-line {
+      padding: 1px 12px;
+      display: block;
+    }
+    .copilot-diff-line.add {
+      background: rgba(46, 160, 67, 0.15);
+      color: #7ee787;
+    }
+    .copilot-diff-line.del {
+      background: rgba(248, 81, 73, 0.15);
+      color: #ffa198;
+    }
+    .copilot-diff-line.meta {
+      color: #79c0ff;
+      background: rgba(56, 139, 253, 0.1);
+    }
+    .copilot-diff-line.ctx {
+      color: #8b949e;
+    }
+
     #composer { flex-shrink: 0; width: calc(100% - 48px); max-width: 760px; margin: 0 auto; padding: 14px 16px 10px; background: #303030; border: 1px solid #464646; border-radius: 24px; }
     #prompt { display: block; width: 100%; background: transparent; border: 0; resize: none; min-height: 56px; max-height: 160px; padding: 4px 2px; line-height: 1.6; }
     #prompt:focus { outline: none; }
@@ -366,7 +490,7 @@
           $('model').value = chat.model;
           history.push(...chat.messages.map(item => ({ ...item })));
           for (const item of history) {
-            const rendered = message(item.role, item.display ?? item.content);
+            const rendered = message(item.role, item.display ?? item.content, item.fileEdits);
             if (item.files?.length) {
               const names = document.createElement('div');
               names.className = 'hint';
@@ -677,6 +801,103 @@
       if (!container.childNodes.length) container.textContent = text;
     }
 
+    function renderDiffLines(container, diffText) {
+      const lines = diffText.split('\n');
+      for (const line of lines) {
+        const lineElem = document.createElement('span');
+        lineElem.className = 'copilot-diff-line';
+        if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) {
+          lineElem.classList.add('meta');
+        } else if (line.startsWith('+')) {
+          lineElem.classList.add('add');
+        } else if (line.startsWith('-')) {
+          lineElem.classList.add('del');
+        } else {
+          lineElem.classList.add('ctx');
+        }
+        lineElem.textContent = line || ' ';
+        container.append(lineElem);
+      }
+    }
+
+    function createCopilotFileCard(fileEdit) {
+      const card = document.createElement('div');
+      card.className = 'copilot-file-card';
+
+      const header = document.createElement('div');
+      header.className = 'copilot-file-header';
+
+      // File icon
+      const icon = document.createElement('span');
+      icon.className = 'copilot-file-icon';
+      icon.innerHTML = `<svg viewBox="0 0 16 16"><path d="M4 1.5A1.5 1.5 0 0 0 2.5 3v10A1.5 1.5 0 0 0 4 14.5h8a1.5 1.5 0 0 0 1.5-1.5V6.414a1.5 1.5 0 0 0-.44-1.06L9.647 1.94A1.5 1.5 0 0 0 8.586 1.5H4zm5 1.414L12.086 6H9.5a.5.5 0 0 1-.5-.5V2.914zM3.5 3a.5.5 0 0 1 .5-.5h4v3A1.5 1.5 0 0 0 9.5 7h3v6a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V3z"/></svg>`;
+
+      const pathElem = document.createElement('span');
+      pathElem.className = 'copilot-file-path';
+      pathElem.textContent = fileEdit.path || 'file';
+      pathElem.title = fileEdit.path || 'file';
+
+      const statusBadge = document.createElement('span');
+      const isCreated = (fileEdit.status || '').toLowerCase() === 'created';
+      statusBadge.className = `copilot-file-badge ${isCreated ? 'created' : 'modified'}`;
+      statusBadge.textContent = isCreated ? 'Created' : 'Modified';
+
+      const stats = document.createElement('span');
+      stats.className = 'copilot-file-stats';
+      if (typeof fileEdit.additions === 'number' && fileEdit.additions > 0) {
+        const addSpan = document.createElement('span');
+        addSpan.className = 'stat-add';
+        addSpan.textContent = `+${fileEdit.additions}`;
+        stats.append(addSpan);
+      }
+      if (typeof fileEdit.deletions === 'number' && fileEdit.deletions > 0) {
+        const delSpan = document.createElement('span');
+        delSpan.className = 'stat-del';
+        delSpan.textContent = `-${fileEdit.deletions}`;
+        stats.append(delSpan);
+      }
+
+      const toggleBtn = document.createElement('button');
+      toggleBtn.type = 'button';
+      toggleBtn.className = 'copilot-file-toggle';
+      toggleBtn.textContent = 'Hide diff';
+
+      header.append(icon, pathElem, statusBadge, stats, toggleBtn);
+
+      const body = document.createElement('div');
+      body.className = 'copilot-file-body';
+
+      const diffPre = document.createElement('pre');
+      diffPre.className = 'copilot-file-diff';
+
+      if (fileEdit.diff && fileEdit.diff.trim()) {
+        renderDiffLines(diffPre, fileEdit.diff);
+      } else if (fileEdit.content) {
+        const contentLines = fileEdit.content.split('\n');
+        for (const line of contentLines) {
+          const lineElem = document.createElement('span');
+          lineElem.className = 'copilot-diff-line add';
+          lineElem.textContent = `+ ${line}`;
+          diffPre.append(lineElem);
+        }
+      } else {
+        const emptyNotice = document.createElement('span');
+        emptyNotice.className = 'copilot-diff-line ctx';
+        emptyNotice.textContent = '(empty content)';
+        diffPre.append(emptyNotice);
+      }
+
+      body.append(diffPre);
+      card.append(header, body);
+
+      toggleBtn.addEventListener('click', () => {
+        const isCollapsed = body.classList.toggle('collapsed');
+        toggleBtn.textContent = isCollapsed ? 'Show diff' : 'Hide diff';
+      });
+
+      return card;
+    }
+
     function setMessageContent(node, text, formatted = false) {
       node.classList.toggle('plain', !formatted);
       if (!formatted) {
@@ -686,7 +907,7 @@
       renderMarkdownContent(node, text);
     }
 
-    function message(role, text) {
+    function message(role, text, fileEdits = []) {
       $('empty')?.remove();
       const article = document.createElement('article');
       article.className = `message ${role}`;
@@ -697,6 +918,12 @@
       content.className = 'content';
       setMessageContent(content, text, role === 'assistant');
       article.append(heading, content);
+      if (Array.isArray(fileEdits) && fileEdits.length) {
+        for (const edit of fileEdits) {
+          const card = createCopilotFileCard(edit);
+          article.insertBefore(card, content);
+        }
+      }
       $('messages').append(article);
       $('messages').scrollTop = $('messages').scrollHeight;
       return { article, content };
@@ -888,6 +1115,7 @@
       let thinking = '';
       let thinkingContent;
       let completed = false;
+      const fileEdits = [];
       const userMessage = { role: 'user', content, display: instruction, files: sentFiles.map(file => file.name) };
       try {
         const response = await fetch('/api/assistant/chat', {
@@ -902,6 +1130,13 @@
           signal: controller.signal
         });
         await readStream(response, (chunk) => {
+          if (chunk.file_edit) {
+            fileEdits.push(chunk.file_edit);
+            const card = createCopilotFileCard(chunk.file_edit);
+            reply.article.insertBefore(card, reply.content);
+            const follow = $('messages').scrollHeight - $('messages').scrollTop - $('messages').clientHeight < 100;
+            if (follow) $('messages').scrollTop = $('messages').scrollHeight;
+          }
           if (chunk.message?.thinking) {
             thinking += chunk.message.thinking;
             if (!thinkingContent) {
@@ -925,8 +1160,9 @@
           if (chunk.done === true) completed = true;
         });
         if (!completed) throw new Error('Ollama stream ended before the reply completed.');
-        if (!answer.trim()) throw new Error('The model returned no answer.');
-        history.push(userMessage, { role: 'assistant', content: answer });
+        if (!answer.trim() && !fileEdits.length) throw new Error('The model returned no answer.');
+        if (!answer.trim() && fileEdits.length) answer = 'Files updated successfully.';
+        history.push(userMessage, { role: 'assistant', content: answer, fileEdits });
         attachments.length = 0;
         renderAttachments();
         try {
