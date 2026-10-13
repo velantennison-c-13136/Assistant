@@ -6,12 +6,38 @@ autonomous engineering assistant with file and shell tool-calling capabilities.
 ## Tools & Capabilities
 
 The assistant can execute code, run tests, and examine/modify files across any system path:
+
 - `read_file`: Read source code and test files from any system path (absolute or relative).
 - `write_file`: Create and update files at any system path with diff generation.
 - `run_command`: Run commands such as `pytest`, `npm test`, linters, git, and python scripts across any directory.
 - `list_files`: List files and directories at any system path.
 
 The assistant has full filesystem access to inspect files, edit code, and execute commands across any path (e.g. `/Users/vela-13136/LLM`, `/Users/vela-13136/LLM/Assistant`, or any local path).
+
+### Current-event answers
+
+Explicit web-search requests, current/future-year questions, and corrections to
+those questions require a successful search and readable source pages before
+the model can answer. Earlier assistant claims are excluded from this research
+context; saved chat history is not deleted. The runtime date is supplied next to
+the model's generation context, and checked source URLs accompany the answer.
+Only the final model response is displayed as the answer. Intermediate tool
+steps remain in the reasoning panel. Failed research is reported as an error
+instead of falling back to model memory. Local code tasks and file attachments
+keep the existing tool flow rather than automatically sending their contents
+as web-search queries.
+
+Search connection failures appear in the chat with retry and connection guidance.
+Raw provider errors remain available under **Technical error details**. Failed
+exchanges are not saved to model history, and the prompt is kept for retrying.
+Run the error-message tests with `node --test tests/chat-error.test.js`.
+
+Run the offline research regressions with the Python interpreter used by the
+server (or its virtual environment):
+
+```bash
+python3 -m unittest discover -s tests -p 'test_research.py'
+```
 
 ### Changed files
 
@@ -34,7 +60,7 @@ Run the diff regression tests with `node --test tests/file-diff.test.js`.
 - Model files stored in `/Users/vela-13136/LLM/Qwen`.
 
 No npm packages need to be installed. Chat history is stored in
-`chats.sqlite` in this directory. Install the Python LangGraph dependencies
+`chats.sqlite` in this directory. Install the Python assistant dependencies
 once before starting:
 
 ```bash
@@ -148,26 +174,14 @@ Ollama should return version JSON; the UI should return HTTP `200`.
 
 ## Troubleshooting
 
-| Problem                              | Action                                                                                                                                                                     |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EADDRINUSE` on port 8765          | Check`lsof` as shown above. Reuse the running UI or stop only the conflicting app you own.                                                                               |
-| `spawn ollama ENOENT`              | Ensure Ollama is installed and`command -v ollama` finds its executable.                                                                                                  |
-| `Cannot start LangGraph assistant` | Check that`python3` (or `PYTHON_BIN`) exists and has `langgraph`, `langchain-ollama`, and `langchain-core` installed from [requirements.txt](./requirements.txt). |
-| No models appear                     | Check the running Ollama server's model directory. With the server running, use`ollama pull qwen3.5:9b` to download the model there.                                     |
+| Problem                                  | Action                                                                                                                                                                                                                             |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EADDRINUSE` on port 8765              | Check`lsof` as shown above. Reuse the running UI or stop only the conflicting app you own.                                                                                                                                       |
+| `spawn ollama ENOENT`                  | Ensure Ollama is installed and`command -v ollama` finds its executable.                                                                                                                                                          |
+| `Cannot start LangGraph assistant`     | Check that`python3` (or `PYTHON_BIN`) exists and has `beautifulsoup4`, `langgraph`, `langchain-ollama`, and `langchain-core` installed from [requirements.txt](./requirements.txt).                                     |
+| No models appear                         | Check the running Ollama server's model directory. With the server running, use`ollama pull qwen3.5:9b` to download the model there.                                                                                             |
 | Replies feel stuck on large file reviews | The assistant now streams progress, but large attachments can still be slow on local models. Try one file at a time, smaller excerpts, or narrower questions. Requests that run longer than 120 seconds are stopped automatically. |
-| Ollama fails to become ready | Read the terminal error output; try the standalone Ollama command above to diagnose startup. |
-| UI changes do not appear             | Restart`node server.js` and refresh the page. The server loads the HTML at startup.                                                                                      |
-| `/v1` returns 404                  | `/v1` is an API base URL, not a chat page. Open port 8765 for the UI; use `/v1/models` to list models through the compatible API.                                      |
-| Saved chats are missing              | Check that`chats.sqlite` exists in the app directory and that the app can write to that directory. History is shared by browsers using this local app.                   |
-
-## Remote access
-
-The browser talks only to this server (Ollama is proxied and stays on 127.0.0.1). To reach it from other devices:
-
-```bash
-HOST=0.0.0.0 ASSISTANT_PASSWORD='choose-a-strong-password' node server.js
-```
-
-The server refuses a non-local `HOST` without `ASSISTANT_PASSWORD` (HTTP Basic auth: any username, that password). `PORT` overrides 8765.
-
-From anywhere on the internet, keep the Mac running and tunnel the port, for example `brew install cloudflared && cloudflared tunnel --url http://localhost:8765` (or use Tailscale for a private network). Always use a strong password with a public tunnel.
+| Ollama fails to become ready             | Read the terminal error output; try the standalone Ollama command above to diagnose startup.                                                                                                                                       |
+| UI changes do not appear                 | Restart`node server.js` and refresh the page. The server loads the HTML at startup.                                                                                                                                              |
+| `/v1` returns 404                      | `/v1` is an API base URL, not a chat page. Open port 8765 for the UI; use `/v1/models` to list models through the compatible API.                                                                                              |
+| Saved chats are missing                  | Check that`chats.sqlite` exists in the app directory and that the app can write to that directory. History is shared by browsers using this local app.                                                                           |

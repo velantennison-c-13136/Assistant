@@ -667,7 +667,7 @@
     </section>
     <form id="composer">
       <label for="prompt" class="sr-only">Your message</label>
-      <textarea id="prompt" placeholder="Message your LangGraph assistant..." rows="2"></textarea>
+      <textarea id="prompt" placeholder="Message your Personal assistant..." rows="2"></textarea>
       <div id="attachments" aria-label="Attached files"></div>
       <div class="actions">
         <label for="files" class="attach-label">+ Attach files
@@ -851,7 +851,7 @@
         remove.textContent = 'Delete';
         remove.setAttribute('aria-label', `Delete chat ${chat.title}`);
         remove.addEventListener('click', async () => {
-          if (busy || readingFiles || !window.confirm(`Delete saved chat "${chat.title}" from SQLite?`)) return;
+          if (busy || readingFiles || !window.confirm(`Delete saved chat "${chat.title}"?`)) return;
           try {
             await chatRequest(`/api/chats/${encodeURIComponent(chat.id)}`, { method: 'DELETE' });
             savedChats = savedChats.filter(item => item.id !== chat.id);
@@ -1593,6 +1593,20 @@
       }
     }
 
+    function chatErrorMessage(error) {
+      const detail = error.message || 'An unexpected error occurred.';
+      if (/^Web search could not be completed\b/i.test(detail)) {
+        if (/503|service unavailable/i.test(detail)) {
+          return 'Web search is temporarily unavailable (503). The search service or network proxy could not be reached. Please try again later; if this continues, check your internet, VPN, or proxy connection.';
+        }
+        if (/timed? out|timeout/i.test(detail)) {
+          return 'Web search timed out. Check your internet connection and try again.';
+        }
+        return 'Web search could not connect to the search service. Check your internet, VPN, or proxy connection and try again.';
+      }
+      return detail;
+    }
+
     async function connect() {
       const attempt = ++connectionAttempt;
       connected = false;
@@ -1709,7 +1723,7 @@
         names.textContent = `Attached: ${sentFiles.map(file => file.name).join(', ')}`;
         user.article.append(names);
       }
-      const reply = message('assistant', 'Waiting for LangGraph assistant...');
+      const reply = message('assistant', 'Waiting for assistant...');
       $('prompt').value = '';
       status('Generating with Qwen + Ollama + LangGraph...');
       let answer = '';
@@ -1792,8 +1806,25 @@
           if (!answer) setMessageContent(reply.content, 'Generation stopped.');
           status('Stopped. This incomplete exchange was not added to model history.');
         } else {
-          if (!answer) setMessageContent(reply.content, 'Could not generate a reply.');
-          status(`${error.message} This exchange was not added to model history.`, true);
+          const errorMessage = chatErrorMessage(error);
+          if (!answer) setMessageContent(reply.content, errorMessage);
+          else {
+            const errorNotice = document.createElement('p');
+            errorNotice.textContent = `Reply incomplete. ${errorMessage}`;
+            errorNotice.setAttribute('role', 'alert');
+            reply.article.append(errorNotice);
+          }
+          if (errorMessage !== error.message) {
+            const details = document.createElement('details');
+            const summary = document.createElement('summary');
+            summary.textContent = 'Technical error details';
+            const detail = document.createElement('div');
+            detail.className = 'content plain';
+            detail.textContent = error.message;
+            details.append(summary, detail);
+            reply.article.append(details);
+          }
+          status(`${errorMessage} This exchange was not added to model history.`, true);
         }
       } finally {
         if (!completed || !answer.trim()) {
