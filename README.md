@@ -24,8 +24,43 @@ the model's generation context, and checked source URLs accompany the answer.
 Only the final model response is displayed as the answer. Intermediate tool
 steps remain in the reasoning panel. Failed research is reported as an error
 instead of falling back to model memory. Local code tasks and file attachments
-keep the existing tool flow rather than automatically sending their contents
-as web-search queries.
+are not automatically sent as web-search queries. Attachment processing uses
+the mode described below; other requests keep the existing tool flow.
+Tool-enabled chats also recover the final answer from LangGraph's completed
+state when it is omitted from intermediate update events, preventing false
+"no final answer" failures after tools finish successfully. If the tool agent
+still stops after collecting tool results without producing a final reply, the
+app now asks the model for one last answer-only pass from the collected tool
+transcript instead of surfacing that failure to the user. The tool agent also
+keeps only recent conversation turns, uses a slightly larger model context, and
+leans toward inspecting and answering the exact request before making edits.
+It now refuses unrequested README/doc creation and requires a file to be read
+before that same file can be modified within a request. It also carries forward
+project roots mentioned earlier in the chat, blocks unnecessary web searches on
+local code tasks, and prevents broad whole-home filesystem scans when a project
+root is already known.
+
+### Faster attachment reading
+
+Chats containing attachments default to **Fast reading (LangGraph, no tools)**
+under **Settings > Attachment processing**. This uses a single-node LangGraph
+flow, disables model thinking, and streams answer text as it is generated.
+It avoids the tool-agent planning loop and tool-schema prompt overhead while
+keeping LangGraph orchestration. Multiple attachments are also read locally
+in parallel, preserving their selection order and existing text validation.
+
+Choose **Agent tools (LangGraph)** before sending requests that need file edits,
+commands, or web research. The setting also applies to follow-up messages and
+reopened chats containing attachments. Chats without attachments retain the
+tool agent. All attachment text and conversation history are still supplied;
+large inputs can still be slow or exceed the model's context window.
+
+Run the offline attachment regressions:
+
+```bash
+python3 -m unittest discover -s tests -p 'test_attachments.py'
+node --test tests/attachments.test.js
+```
 
 Search connection failures appear in the chat with retry and connection guidance.
 Raw provider errors remain available under **Technical error details**. Failed
@@ -91,11 +126,12 @@ The app automatically:
 2. Reuses it if it is already running.
 3. Otherwise starts Ollama using `~/LLM/Qwen` as the model directory.
 4. Waits up to 30 seconds for Ollama to become ready.
-5. Uses LangGraph to send your conversation to the selected Qwen model.
+5. Uses LangGraph to send your conversation to the selected Qwen model,
+   using streaming attachment reading or the tool agent as described above.
 
 You do not need to run `ollama run qwen3.5:9b` separately. Sending a
 message from the UI loads the selected model, then routes it through the
-LangGraph assistant.
+selected LangGraph flow.
 
 ### Use a different model directory
 
@@ -180,7 +216,8 @@ Ollama should return version JSON; the UI should return HTTP `200`.
 | `spawn ollama ENOENT`                  | Ensure Ollama is installed and`command -v ollama` finds its executable.                                                                                                                                                          |
 | `Cannot start LangGraph assistant`     | Check that`python3` (or `PYTHON_BIN`) exists and has `beautifulsoup4`, `langgraph`, `langchain-ollama`, and `langchain-core` installed from [requirements.txt](./requirements.txt).                                     |
 | No models appear                         | Check the running Ollama server's model directory. With the server running, use`ollama pull qwen3.5:9b` to download the model there.                                                                                             |
-| Replies feel stuck on large file reviews | The assistant now streams progress, but large attachments can still be slow on local models. Try one file at a time, smaller excerpts, or narrower questions. Requests that run longer than 120 seconds are stopped automatically. |
+| Replies feel stuck on large file reviews | The assistant now streams progress, keeps recent context focused, and waits up to 240 seconds before timing out. Large attachments can still be slow on local models, so try one file at a time, smaller excerpts, or narrower questions when possible. |
+| The assistant searches the wrong project or the whole disk | Include the project path once in the chat. The assistant now reuses that root for later turns, avoids web search for local code tasks, and blocks broad `find /Users/...` scans when it already knows the active project root. |
 | Ollama fails to become ready             | Read the terminal error output; try the standalone Ollama command above to diagnose startup.                                                                                                                                       |
 | UI changes do not appear                 | Restart`node server.js` and refresh the page. The server loads the HTML at startup.                                                                                                                                              |
 | `/v1` returns 404                      | `/v1` is an API base URL, not a chat page. Open port 8765 for the UI; use `/v1/models` to list models through the compatible API.                                                                                              |

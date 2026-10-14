@@ -39,7 +39,7 @@ const listChats = database.prepare(`
   ORDER BY updated_at DESC
 `);
 const maxRequestBytes = 20 * 1024 * 1024;
-const langGraphTimeoutMs = 120000;
+const langGraphTimeoutMs = 240000;
 let ollamaProcess;
 let shuttingDown = false;
 let shutdownPromise;
@@ -136,7 +136,7 @@ function sanitizePythonStderr(stderr) {
     .trim();
 }
 
-async function streamLangGraphChat({ model, endpoint, messages, signal, response }) {
+async function streamLangGraphChat({ model, endpoint, messages, mode, signal, response }) {
   return await new Promise((resolve, reject) => {
     const child = spawn(pythonBin, [langGraphScript], {
       env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONWARNINGS: 'ignore' },
@@ -147,8 +147,8 @@ async function streamLangGraphChat({ model, endpoint, messages, signal, response
     let errorSent = false;
     const timeout = setTimeout(() => {
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
-      emitError('LangGraph timed out after 120 seconds. Try a smaller excerpt or fewer files.');
-      finish(new HttpError(504, 'LangGraph timed out after 120 seconds. Try a smaller excerpt or fewer files.'));
+      emitError('LangGraph timed out after 240 seconds. Try a smaller excerpt, fewer files, or a more specific request.');
+      finish(new HttpError(504, 'LangGraph timed out after 240 seconds. Try a smaller excerpt, fewer files, or a more specific request.'));
     }, langGraphTimeoutMs);
 
     function finish(error, value) {
@@ -200,7 +200,7 @@ async function streamLangGraphChat({ model, endpoint, messages, signal, response
       return;
     }
     signal?.addEventListener('abort', abortChild, { once: true });
-    child.stdin.end(JSON.stringify({ model, endpoint, messages }));
+    child.stdin.end(JSON.stringify({ model, endpoint, messages, mode }));
   });
 }
 
@@ -263,6 +263,10 @@ async function handleApi(request, response, url) {
     if (!Array.isArray(body.messages) || !body.messages.length || !body.messages.every(validPromptMessage)) {
       throw new HttpError(400, 'Chat messages are invalid.');
     }
+    const mode = body.mode ?? 'agent';
+    if (!['agent', 'attachment'].includes(mode)) {
+      throw new HttpError(400, 'Chat mode must be agent or attachment.');
+    }
     const abortController = new AbortController();
     response.on('close', () => {
       if (!response.writableEnded) abortController.abort();
@@ -276,6 +280,7 @@ async function handleApi(request, response, url) {
       model: body.model.trim(),
       endpoint,
       messages: body.messages,
+      mode,
       signal: abortController.signal,
       response
     });
