@@ -13,6 +13,7 @@ import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, TypedDict
+from uuid import uuid4
 
 try:
     from bs4 import BeautifulSoup
@@ -168,7 +169,7 @@ def find_existing_match(target_path: str) -> Path | None:
 
 def initialize_tool_context(messages: list[BaseMessage]) -> None:
     last_user = next((message for message in reversed(messages) if isinstance(message, HumanMessage)), None)
-    content = text_from_response(last_user.content).lower().strip() if last_user else ""
+    content = effective_user_request(messages).lower().strip() if last_user else ""
     allow_doc_writes = any(token in content for token in (
         "readme", "markdown", "documentation", "document this", "docs", ".md", "changelog"
     ))
@@ -695,15 +696,568 @@ def synthesize_final_answer(model: str, endpoint: str, messages: list[BaseMessag
     return text_from_response(response.content).strip()
 
 
-def build_llm(model: str, endpoint: str) -> ChatOllama:
-    return ChatOllama(
-        model=model,
-        base_url=endpoint,
-        temperature=0.1,
-        num_ctx=12288,
-        num_predict=1536,
-        keep_alive="15m"
+def build_llm(
+    model: str,
+    endpoint: str,
+    *,
+    temperature: float = 0.1,
+    num_ctx: int = 12288,
+    num_predict: int = 1536,
+    response_format: str | None = None,
+) -> ChatOllama:
+    options: dict[str, object] = {
+        "model": model,
+        "base_url": endpoint,
+        "temperature": temperature,
+        "num_ctx": num_ctx,
+        "num_predict": num_predict,
+        "keep_alive": "15m",
+    }
+    if response_format:
+        options["format"] = response_format
+    return ChatOllama(**options)
+
+
+def latest_user_request(messages: list[BaseMessage]) -> str:
+    last_user = next((message for message in reversed(messages) if isinstance(message, HumanMessage)), None)
+    if last_user is None:
+        return ""
+    return text_from_response(last_user.content).strip()
+
+
+def is_confirmation_message(text: str) -> bool:
+    normalized = text.strip().lower()
+    if not normalized:
+        return False
+    return bool(re.fullmatch(
+        r"(yes|yes do it|do it|apply( the)? fix|apply( it)?|go ahead|proceed|continue|ok|okay|sure|confirm|approved?)",
+        normalized
+    ))
+
+
+def effective_user_request(messages: list[BaseMessage]) -> str:
+    latest = latest_user_request(messages)
+    if not is_confirmation_message(latest):
+        return latest
+    for message in reversed(messages[:-1]):
+        if not isinstance(message, HumanMessage):
+            continue
+        candidate = text_from_response(message.content).strip()
+        if candidate and not is_confirmation_message(candidate):
+            return f"{candidate}\nFollow-up confirmation: {latest}"
+    return latest
+
+
+def detect_request_kind(messages: list[BaseMessage]) -> str:
+    content = effective_user_request(messages).lower()
+    if not content:
+        return "answer"
+    if explicitly_requests_web_search(messages) or research_query(messages):
+        return "web"
+    if re.search(r"\b(plan|approach|steps|step by step|roadmap)\b", content):
+        return "plan"
+    if re.search(r"\b(delete|remove)\b", content) and re.search(r"\b(file|files)\b", content):
+        return "delete"
+    if re.search(r"\b(fix|edit|modify|update|change|implement|refactor)\b", content):
+        return "fix"
+    if re.search(r"\b(explain|understand|analyze|review|what does|how does)\b", content):
+        return "inspect"
+    return "answer"
+
+
+def preview_text(text: str, limit: int = 900) -> str:
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "... (truncated)"
+
+
+def try_parse_json_object(text: str) -> dict[str, object] | None:
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def extract_balanced_json_object(text: str) -> str | None:
+    start = text.find("{")
+    while start >= 0:
+        depth = 0
+        in_string = False
+        escape = False
+        for index in range(start, len(text)):
+            char = text[index]
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+                continue
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start:index + 1]
+        start = text.find("{", start + 1)
+    return None
+
+
+def extract_json_object(text: str) -> dict[str, object]:
+    normalized = text.strip()
+    candidates = [normalized]
+
+    for match in re.finditer(r"```(?:json)?\s*(.*?)```", normalized, re.IGNORECASE | re.DOTALL):
+        fenced = match.group(1).strip()
+        if fenced:
+            candidates.append(fenced)
+
+    balanced = extract_balanced_json_object(normalized)
+    if balanced:
+        candidates.append(balanced)
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        data = try_parse_json_object(candidate)
+        if data is not None:
+            return data
+
+    preview = preview_text(normalized.replace("\n", " "), 260)
+    raise ValueError(f"The model did not return a valid JSON object. Raw output: {preview}")
+
+
+def extract_json_like_string_field(text: str, field: str) -> str | None:
+    pattern = rf'"{re.escape(field)}"\s*:\s*"((?:[^"\\]|\\.|[\r\n])*)"'
+    match = re.search(pattern, text, re.DOTALL)
+    if not match:
+        return None
+    value = match.group(1)
+    value = value.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", "\t").replace('\\"', '"').replace("\\\\", "\\")
+    return value
+
+
+def extract_controller_action(text: str) -> dict[str, object]:
+    try:
+        return extract_json_object(text)
+    except ValueError:
+        match = re.search(r'"action"\s*:\s*"([a-z_]+)"', text)
+        if not match:
+            raise
+        action = match.group(1)
+        parsed: dict[str, object] = {"action": action}
+        if action in {"answer", "plan"}:
+            return parsed
+        fields_by_action = {
+            "list_files": ["directory_path", "reason"],
+            "read_file": ["file_path", "reason"],
+            "run_command": ["command", "working_directory", "reason"],
+            "web_search": ["query", "reason"],
+            "fetch_web_page": ["url", "reason"],
+            "propose_write": ["file_path", "instructions", "message"],
+            "propose_delete": ["file_path", "reason", "message"],
+        }
+        for field in fields_by_action.get(action, []):
+            value = extract_json_like_string_field(text, field)
+            if value is not None:
+                parsed[field] = value
+        return parsed
+
+
+def recent_conversation_summary(messages: list[BaseMessage], limit: int = 6) -> str:
+    rows: list[str] = []
+    for message in messages[-limit:]:
+        role = "user" if isinstance(message, HumanMessage) else "assistant"
+        text = preview_text(text_from_response(message.content), 500)
+        if text:
+            rows.append(f"{role}: {text}")
+    return "\n".join(rows)
+
+
+def observation_summary(observations: list[dict[str, str]], limit: int = 5) -> str:
+    rows: list[str] = []
+    for index, item in enumerate(observations[-limit:], start=max(1, len(observations) - limit + 1)):
+        tool_name = item.get("tool", "tool")
+        target = item.get("target", "")
+        result = preview_text(item.get("result", ""), 700)
+        label = f"{index}. {tool_name}"
+        if target:
+            label += f" -> {target}"
+        rows.append(f"{label}\n{result}")
+    return "\n\n".join(rows) if rows else "(no observations yet)"
+
+
+def structured_output_unavailable(error: Exception) -> bool:
+    detail = str(error).lower()
+    return "structured output is unavailable" in detail or (
+        "status code: 501" in detail and "structured" in detail
     )
+
+
+def invoke_text(
+    model: str,
+    endpoint: str,
+    prompt_messages: list[BaseMessage],
+    *,
+    temperature: float,
+    num_predict: int,
+    response_format: str | None = None,
+) -> str:
+    llm = build_llm(
+        model,
+        endpoint,
+        temperature=temperature,
+        num_predict=num_predict,
+        response_format=response_format,
+    )
+    try:
+        response = llm.invoke(prompt_messages)
+    except Exception as error:
+        if not response_format or not structured_output_unavailable(error):
+            raise
+        fallback_llm = build_llm(
+            model,
+            endpoint,
+            temperature=temperature,
+            num_predict=num_predict,
+        )
+        response = fallback_llm.invoke(prompt_messages)
+    return text_from_response(response.content).strip()
+
+
+def decide_next_action(
+    model: str,
+    endpoint: str,
+    messages: list[BaseMessage],
+    observations: list[dict[str, str]],
+    step: int,
+    max_steps: int,
+) -> dict[str, object]:
+    request_kind = detect_request_kind(messages)
+    prompt = (
+        "You are a deterministic coding assistant controller. Decide exactly one next action.\n"
+        "Return JSON only with no markdown.\n"
+        "Allowed actions:\n"
+        "- answer: {\"action\":\"answer\"}\n"
+        "- plan: {\"action\":\"plan\"}\n"
+        "- list_files: {\"action\":\"list_files\",\"directory_path\":\"path\",\"reason\":\"short reason\"}\n"
+        "- read_file: {\"action\":\"read_file\",\"file_path\":\"path\",\"reason\":\"short reason\"}\n"
+        "- run_command: {\"action\":\"run_command\",\"command\":\"...\",\"working_directory\":\"optional path\",\"reason\":\"short reason\"}\n"
+        "- web_search: {\"action\":\"web_search\",\"query\":\"...\",\"reason\":\"short reason\"}\n"
+        "- fetch_web_page: {\"action\":\"fetch_web_page\",\"url\":\"...\",\"reason\":\"short reason\"}\n"
+        "- propose_write: {\"action\":\"propose_write\",\"file_path\":\"path\",\"instructions\":\"precise change to make\",\"message\":\"brief user-facing summary\"}\n"
+        "- propose_delete: {\"action\":\"propose_delete\",\"file_path\":\"path\",\"reason\":\"why delete is needed\",\"message\":\"brief user-facing summary\"}\n"
+        "Rules:\n"
+        "- For local code/file tasks, never use web_search unless the user explicitly asked to search the web.\n"
+        "- Never use run_command for broad whole-home scans, searches, or exploratory find commands.\n"
+        "- Before propose_write or propose_delete, the target file must already have been read.\n"
+        "- Prefer list_files/read_file over run_command for inspection.\n"
+        "- Never ask the user to run a command, open a file, or paste output when a tool can do it now.\n"
+        "- If the latest user turn is a confirmation like 'yes do it' or 'apply the fix', continue the prior task instead of asking for confirmation again.\n"
+        "- If a guessed file path does not exist, inspect nearby files under the preferred project root and continue; do not ask the user to identify the file if tools can determine it.\n"
+        "- If the user asked to plan only, choose plan or answer, not file changes.\n"
+        "- If you already have enough evidence, choose answer or propose_write instead of extra tool calls.\n"
+        "- Keep moving; do not return placeholder text like 'let me fix this'.\n"
+        f"- This is step {step} of at most {max_steps}. Be concise.\n"
+    )
+    roots = TOOL_CONTEXT.get("candidate_roots", [str(DEFAULT_WORKING_DIR)])
+    read_files = sorted(str(path) for path in TOOL_CONTEXT.get("read_files", set()))
+    user_prompt = (
+        f"Request kind: {request_kind}\n"
+        f"Effective user request: {effective_user_request(messages)}\n"
+        f"Latest user turn: {latest_user_request(messages)}\n"
+        f"Preferred project root: {TOOL_CONTEXT.get('preferred_root', str(DEFAULT_WORKING_DIR))}\n"
+        f"Candidate roots: {json.dumps(roots[:4])}\n"
+        f"Read files this request: {json.dumps(read_files[-8:])}\n"
+        f"Recent conversation:\n{recent_conversation_summary(messages)}\n\n"
+        f"Observations so far:\n{observation_summary(observations)}\n"
+    )
+    text = invoke_text(
+        model,
+        endpoint,
+        [SystemMessage(content=prompt), HumanMessage(content=user_prompt)],
+        temperature=0.0,
+        num_predict=320,
+        response_format="json",
+    )
+    action = extract_controller_action(text)
+    if not isinstance(action.get("action"), str):
+        raise ValueError("The controller did not choose a valid action.")
+    return action
+
+
+def build_file_edit_payload(resolved: Path, old_content: str, new_content: str, status_type: str) -> dict[str, object]:
+    try:
+        rel_path = str(resolved.relative_to(DEFAULT_WORKING_DIR))
+    except ValueError:
+        rel_path = str(resolved)
+    old_lines = old_content.splitlines(keepends=True)
+    new_lines = new_content.splitlines(keepends=True)
+    diff_lines = list(difflib.unified_diff(
+        old_lines,
+        new_lines,
+        fromfile=f"a/{rel_path}",
+        tofile=f"b/{rel_path}",
+        lineterm=""
+    ))
+    additions = sum(1 for line in diff_lines if line.startswith("+") and not line.startswith("+++"))
+    deletions = sum(1 for line in diff_lines if line.startswith("-") and not line.startswith("---"))
+    return {
+        "path": rel_path,
+        "status": status_type,
+        "diff": "\n".join(diff_lines),
+        "content": new_content,
+        "additions": additions,
+        "deletions": deletions,
+    }
+
+
+def propose_write_change(
+    model: str,
+    endpoint: str,
+    messages: list[BaseMessage],
+    file_path: str,
+    instructions: str,
+    current_content: str,
+    observations: list[dict[str, str]],
+) -> dict[str, object]:
+    prompt = (
+        "You are preparing a code edit proposal for approval.\n"
+        "Return JSON only with keys summary and content.\n"
+        "- content must be the full updated file contents.\n"
+        "- Preserve unrelated code.\n"
+        "- Make only the requested change.\n"
+        "- Do not wrap the content in markdown fences.\n"
+    )
+    user_prompt = (
+        f"Effective user request: {effective_user_request(messages)}\n"
+        f"Latest user turn: {latest_user_request(messages)}\n"
+        f"Target file: {file_path}\n"
+        f"Requested change: {instructions}\n"
+        f"Additional observations:\n{observation_summary(observations, limit=4)}\n\n"
+        f"Current file contents:\n{current_content}"
+    )
+    raw = invoke_text(
+        model,
+        endpoint,
+        [SystemMessage(content=prompt), HumanMessage(content=user_prompt)],
+        temperature=0.0,
+        num_predict=2200,
+        response_format="json",
+    )
+    proposal = extract_json_object(raw)
+    summary = str(proposal.get("summary", "")).strip() or f"Update {file_path}"
+    content = proposal.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("The proposed file update did not include valid file contents.")
+    return {"summary": summary, "content": content}
+
+
+def emit_approval_request(approval: dict[str, object]) -> None:
+    emit({"approval_request": approval})
+
+
+def propose_delete_change(resolved: Path, old_content: str, reason: str, message: str) -> dict[str, object]:
+    file_edit = build_file_edit_payload(resolved, old_content, "", "deleted")
+    return {
+        "id": str(uuid4()),
+        "kind": "delete",
+        "path": str(resolved),
+        "rationale": reason.strip() or "Delete the file.",
+        "message": message.strip() or f"Delete {resolved.name}",
+        "old_content": old_content,
+        "new_content": "",
+        "file_edit": file_edit,
+        "status": "pending",
+    }
+
+
+def build_write_approval(resolved: Path, old_content: str, new_content: str, summary: str, message: str) -> dict[str, object]:
+    existed = resolved.exists()
+    status_type = "modified" if existed else "created"
+    file_edit = build_file_edit_payload(resolved, old_content, new_content, status_type)
+    return {
+        "id": str(uuid4()),
+        "kind": "write",
+        "path": str(resolved),
+        "rationale": summary.strip() or f"Update {resolved.name}",
+        "message": message.strip() or summary.strip() or f"Prepared a change for {resolved.name}.",
+        "old_content": old_content,
+        "new_content": new_content,
+        "file_edit": file_edit,
+        "status": "pending",
+    }
+
+
+def execute_tool_action(action: dict[str, object]) -> dict[str, str]:
+    tool_name = str(action.get("action", "")).strip()
+    if tool_name == "read_file":
+        target = str(action.get("file_path", "")).strip()
+        result = read_file.invoke({"file_path": target})
+        return {"tool": tool_name, "target": target, "result": str(result)}
+    if tool_name == "list_files":
+        target = str(action.get("directory_path", "")).strip() or "."
+        result = list_files.invoke({"directory_path": target})
+        return {"tool": tool_name, "target": target, "result": str(result)}
+    if tool_name == "run_command":
+        command = str(action.get("command", "")).strip()
+        working_directory = str(action.get("working_directory", "")).strip()
+        result = run_command.invoke({"command": command, "working_directory": working_directory})
+        return {"tool": tool_name, "target": command, "result": str(result)}
+    if tool_name == "web_search":
+        query = str(action.get("query", "")).strip()
+        result = web_search.invoke({"query": query})
+        return {"tool": tool_name, "target": query, "result": str(result)}
+    if tool_name == "fetch_web_page":
+        url = str(action.get("url", "")).strip()
+        result = fetch_web_page.invoke({"url": url})
+        return {"tool": tool_name, "target": url, "result": str(result)}
+    raise ValueError(f"Unsupported tool action: {tool_name}")
+
+
+def answer_from_observations(
+    model: str,
+    endpoint: str,
+    messages: list[BaseMessage],
+    observations: list[dict[str, str]],
+) -> str:
+    prompt = (
+        "You are finalizing a coding assistant answer.\n"
+        "Use the user's latest request, recent conversation, and collected observations.\n"
+        "Answer directly and concretely. If a file change still needs approval, say that clearly.\n"
+        "Do not ask the user to run commands, inspect files, or share output when the available tools could do that work.\n"
+        "For local code tasks, take the next step yourself or present the approval needed for the next file change.\n"
+        "Do not mention internal controller logic.\n"
+    )
+    user_prompt = (
+        f"Effective user request: {effective_user_request(messages)}\n"
+        f"Latest user turn: {latest_user_request(messages)}\n"
+        f"Recent conversation:\n{recent_conversation_summary(messages)}\n\n"
+        f"Collected observations:\n{observation_summary(observations, limit=6)}"
+    )
+    return invoke_text(
+        model,
+        endpoint,
+        [SystemMessage(content=prompt), HumanMessage(content=user_prompt)],
+        temperature=0.1,
+        num_predict=900,
+    )
+
+
+def run_code_assistant(messages: list[BaseMessage], model: str, endpoint: str) -> None:
+    emit({"message": {"thinking": "Code assistant is analyzing your request...\n"}})
+    if not should_use_tools(messages) and detect_request_kind(messages) in {"plan", "answer"}:
+        direct = invoke_text(
+            model,
+            endpoint,
+            [SystemMessage(content=(
+                CHAT_ONLY_PROMPT +
+                " Use the available tools yourself when a local coding task needs inspection or execution; "
+                "do not ask the user to run commands or copy file contents for you."
+            )), *messages],
+            temperature=0.1,
+            num_predict=900,
+        )
+        if not direct:
+            raise ValueError("The assistant returned no answer.")
+        emit({"message": {"content": direct}})
+        emit({"done": True})
+        return
+
+    observations: list[dict[str, str]] = []
+    max_steps = 6
+    for step in range(1, max_steps + 1):
+        action = decide_next_action(model, endpoint, messages, observations, step, max_steps)
+        action_name = str(action.get("action", "")).strip()
+        if action_name in {"answer", "plan"}:
+            final_text = str(action.get("message", "")).strip() or answer_from_observations(model, endpoint, messages, observations)
+            if looks_like_placeholder_answer(final_text):
+                final_text = answer_from_observations(model, endpoint, messages, observations)
+            if not final_text:
+                raise ValueError("The assistant returned no answer.")
+            emit({"message": {"content": final_text}})
+            emit({"done": True})
+            return
+        if action_name in {"read_file", "list_files", "run_command", "web_search", "fetch_web_page"}:
+            emit({"message": {"thinking": f"Calling tool: {action_name}({json.dumps({k: v for k, v in action.items() if k != 'action'})})\n"}})
+            observation = execute_tool_action(action)
+            observations.append(observation)
+            emit({"message": {"thinking": f"Tool result ({observation['tool']}):\n{preview_text(observation['result'], 300)}\n"}})
+            continue
+        if action_name == "propose_write":
+            file_path = str(action.get("file_path", "")).strip()
+            if not file_path:
+                raise ValueError("The controller proposed a write without a target file.")
+            resolved = resolve_path(file_path)
+            read_files = TOOL_CONTEXT.get("read_files", set())
+            if not isinstance(read_files, set) or str(resolved) not in read_files:
+                result = read_file.invoke({"file_path": file_path})
+                observations.append({"tool": "read_file", "target": str(resolved), "result": str(result)})
+                emit({"message": {"thinking": f"Tool result (read_file):\n{preview_text(str(result), 300)}\n"}})
+                continue
+            current_content = read_file.invoke({"file_path": file_path})
+            if not isinstance(current_content, str) or current_content.startswith("Error:"):
+                raise ValueError(str(current_content))
+            proposal = propose_write_change(
+                model,
+                endpoint,
+                messages,
+                str(resolved),
+                str(action.get("instructions", "")).strip() or latest_user_request(messages),
+                current_content,
+                observations,
+            )
+            approval = build_write_approval(
+                resolved,
+                current_content,
+                proposal["content"],
+                proposal["summary"],
+                str(action.get("message", "")).strip() or proposal["summary"],
+            )
+            emit_approval_request(approval)
+            emit({"message": {"content": f"{approval['message']}\n\nApprove this change to apply it."}})
+            emit({"done": True})
+            return
+        if action_name == "propose_delete":
+            file_path = str(action.get("file_path", "")).strip()
+            if not file_path:
+                raise ValueError("The controller proposed a delete without a target file.")
+            resolved = resolve_path(file_path)
+            read_files = TOOL_CONTEXT.get("read_files", set())
+            if not isinstance(read_files, set) or str(resolved) not in read_files:
+                result = read_file.invoke({"file_path": file_path})
+                observations.append({"tool": "read_file", "target": str(resolved), "result": str(result)})
+                emit({"message": {"thinking": f"Tool result (read_file):\n{preview_text(str(result), 300)}\n"}})
+                continue
+            old_content = read_file.invoke({"file_path": file_path})
+            if not isinstance(old_content, str) or old_content.startswith("Error:"):
+                raise ValueError(str(old_content))
+            approval = propose_delete_change(
+                resolved,
+                old_content,
+                str(action.get("reason", "")).strip(),
+                str(action.get("message", "")).strip(),
+            )
+            emit_approval_request(approval)
+            emit({"message": {"content": f"{approval['message']}\n\nApprove this deletion to apply it."}})
+            emit({"done": True})
+            return
+
+        raise ValueError(f"Unsupported controller action: {action_name}")
+
+    final_text = answer_from_observations(model, endpoint, messages, observations)
+    if not final_text:
+        raise ValueError("The assistant did not finish within the allowed controller steps.")
+    emit({"message": {"content": final_text}})
+    emit({"done": True})
 
 
 def build_chat_graph(model: str, endpoint: str):
@@ -987,8 +1541,7 @@ def main() -> int:
             run_chat_graph(graph, chat_messages)
         else:
             chat_messages = clean_history_for_tools(chat_messages)
-            agent = build_agent(model.strip(), endpoint.strip())
-            run_tool_agent(agent, chat_messages, model.strip(), endpoint.strip())
+            run_code_assistant(chat_messages, model.strip(), endpoint.strip())
         return 0
     except Exception as error:  # surfaced to the caller and shown in the UI
         print(str(error), file=sys.stderr)

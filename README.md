@@ -1,11 +1,12 @@
 # Personal Assistant: Start and Stop
 
-Local chat UI powered by Qwen through Ollama, with LangGraph handling an
-autonomous engineering assistant with file and shell tool-calling capabilities.
+Local chat UI powered by Qwen through Ollama, with a deterministic code
+assistant for planning, inspection, and approval-based file changes.
 
 ## Tools & Capabilities
 
-The assistant can execute code, run tests, and examine/modify files across any system path:
+The assistant can execute code, run tests, inspect files, and prepare
+approval-gated edits or deletions across any system path:
 
 - `read_file`: Read source code and test files from any system path (absolute or relative).
 - `write_file`: Create and update files at any system path with diff generation.
@@ -26,19 +27,14 @@ steps remain in the reasoning panel. Failed research is reported as an error
 instead of falling back to model memory. Local code tasks and file attachments
 are not automatically sent as web-search queries. Attachment processing uses
 the mode described below; other requests keep the existing tool flow.
-Tool-enabled chats also recover the final answer from LangGraph's completed
-state when it is omitted from intermediate update events, preventing false
-"no final answer" failures after tools finish successfully. If the tool agent
-still stops after collecting tool results without producing a final reply, the
-app now asks the model for one last answer-only pass from the collected tool
-transcript instead of surfacing that failure to the user. The tool agent also
-keeps only recent conversation turns, uses a slightly larger model context, and
-leans toward inspecting and answering the exact request before making edits.
-It now refuses unrequested README/doc creation and requires a file to be read
-before that same file can be modified within a request. It also carries forward
-project roots mentioned earlier in the chat, blocks unnecessary web searches on
-local code tasks, and prevents broad whole-home filesystem scans when a project
-root is already known.
+Code-assistant chats now use a deterministic controller instead of the generic
+LangGraph ReAct tool loop. For local code tasks, the controller reuses project
+roots mentioned earlier in the chat, blocks unnecessary web searches, avoids
+broad whole-home filesystem scans, and stops once it has enough evidence.
+Planned file writes and deletions are shown in the UI first and only apply
+after explicit user approval. The assistant also refuses unrequested
+README/documentation creation and requires a file to be read before it can be
+modified within the same request.
 
 ### Faster attachment reading
 
@@ -49,11 +45,12 @@ It avoids the tool-agent planning loop and tool-schema prompt overhead while
 keeping LangGraph orchestration. Multiple attachments are also read locally
 in parallel, preserving their selection order and existing text validation.
 
-Choose **Agent tools (LangGraph)** before sending requests that need file edits,
-commands, or web research. The setting also applies to follow-up messages and
-reopened chats containing attachments. Chats without attachments retain the
-tool agent. All attachment text and conversation history are still supplied;
-large inputs can still be slow or exceed the model's context window.
+Choose **Code assistant (approval required)** before sending requests that need
+planning, file edits, commands, or web research. The setting also applies to
+follow-up messages and reopened chats containing attachments. Chats without
+attachments use the same deterministic controller automatically. All
+attachment text and conversation history are still supplied; large inputs can
+still be slow or exceed the model's context window.
 
 Run the offline attachment regressions:
 

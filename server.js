@@ -106,6 +106,58 @@ async function readJson(request) {
   }
 }
 
+function resolveApprovalPath(inputPath) {
+  if (typeof inputPath !== 'string' || !inputPath.trim()) throw new HttpError(400, 'Approval path is required.');
+  return path.resolve(inputPath.trim());
+}
+
+function validFileEdit(edit) {
+  return edit && typeof edit.path === 'string' && typeof edit.status === 'string' &&
+    typeof edit.diff === 'string' && typeof edit.content === 'string' &&
+    Number.isFinite(edit.additions) && Number.isFinite(edit.deletions);
+}
+
+function validApproval(body) {
+  return body && (body.kind === 'write' || body.kind === 'delete') &&
+    typeof body.path === 'string' && typeof body.rationale === 'string' &&
+    typeof body.message === 'string' && typeof body.old_content === 'string' &&
+    typeof body.new_content === 'string' && typeof body.status === 'string' &&
+    validFileEdit(body.file_edit);
+}
+
+function applyApproval(body) {
+  if (!validApproval(body)) throw new HttpError(400, 'Approval request is invalid.');
+  const resolvedPath = resolveApprovalPath(body.path);
+  if (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isDirectory()) {
+    throw new HttpError(400, 'Approval target must be a file, not a directory.');
+  }
+  if (body.kind === 'write') {
+    const exists = fs.existsSync(resolvedPath);
+    const current = exists ? fs.readFileSync(resolvedPath, 'utf8') : '';
+    if ((exists && current !== body.old_content) || (!exists && body.old_content !== '')) {
+      throw new HttpError(409, 'The target file changed since this edit was proposed. Re-read the file and generate a fresh proposal.');
+    }
+    fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
+    fs.writeFileSync(resolvedPath, body.new_content, 'utf8');
+    return {
+      message: body.message || `Applied approved change to ${path.basename(resolvedPath)}.`,
+      fileEdit: body.file_edit
+    };
+  }
+  if (!fs.existsSync(resolvedPath)) {
+    throw new HttpError(409, 'The target file no longer exists. Nothing was deleted.');
+  }
+  const current = fs.readFileSync(resolvedPath, 'utf8');
+  if (current !== body.old_content) {
+    throw new HttpError(409, 'The target file changed since this deletion was proposed. Re-read the file and generate a fresh proposal.');
+  }
+  fs.unlinkSync(resolvedPath);
+  return {
+    message: body.message || `Deleted ${path.basename(resolvedPath)} after approval.`,
+    fileEdit: body.file_edit
+  };
+}
+
 function saveChatsAtomically(chats) {
   const save = database.prepare(`
     INSERT OR IGNORE INTO chats (id, title, model, updated_at, messages)
@@ -204,26 +256,29 @@ async function streamLangGraphChat({ model, endpoint, messages, mode, signal, re
   });
 }
 
-async function proxyOllama(request, response, target, method) {
+async function proxyOllama(request, response, target, method, options = {}) {
   if (request.method !== method) {
     response.writeHead(405, { Allow: method });
     response.end('Method not allowed');
     return;
   }
+  const { endpoint = ollamaUrl, body } = options;
   const abortController = new AbortController();
   response.on('close', () => {
     if (!response.writableEnded) abortController.abort();
   });
   const init = { method, signal: abortController.signal };
   if (method === 'POST') {
-    const body = await readJson(request);
-    if (typeof body?.model !== 'string' || !body.model.trim()) throw new HttpError(400, 'Model is required.');
+    const payload = body ?? await readJson(request);
+    if (typeof payload?.model !== 'string' || !payload.model.trim()) throw new HttpError(400, 'Model is required.');
     init.headers = { 'Content-Type': 'application/json' };
-    init.body = JSON.stringify({ model: body.model.trim(), stream: true });
+    init.body = typeof payload === 'string'
+      ? payload
+      : JSON.stringify({ model: payload.model.trim(), stream: true });
   }
   let upstream;
   try {
-    upstream = await fetch(`${ollamaUrl}${target}`, init);
+    upstream = await fetch(`${endpoint}${target}`, init);
   } catch {
     throw new HttpError(502, 'Ollama is not reachable.');
   }
@@ -242,11 +297,18 @@ async function proxyOllama(request, response, target, method) {
 
 async function handleApi(request, response, url) {
   if (url.pathname === '/api/ollama/tags') {
-    await proxyOllama(request, response, '/api/tags', 'GET');
+    const endpoint = normalizeOllamaOrigin(url.searchParams.get('endpoint') || ollamaUrl);
+    await proxyOllama(request, response, '/api/tags', 'GET', { endpoint });
     return;
   }
   if (url.pathname === '/api/ollama/pull') {
-    await proxyOllama(request, response, '/api/pull', 'POST');
+    const body = await readJson(request);
+    const endpoint = normalizeOllamaOrigin(body?.endpoint || ollamaUrl);
+    if (typeof body?.model !== 'string' || !body.model.trim()) throw new HttpError(400, 'Model is required.');
+    await proxyOllama(request, response, '/api/pull', 'POST', {
+      endpoint,
+      body: JSON.stringify({ model: body.model.trim(), stream: true })
+    });
     return;
   }
   if (url.pathname === '/api/assistant/chat') {
@@ -285,6 +347,17 @@ async function handleApi(request, response, url) {
       response
     });
     if (!response.destroyed && !response.writableEnded) response.end();
+    return;
+  }
+  if (url.pathname === '/api/assistant/approval') {
+    if (request.method !== 'POST') {
+      response.writeHead(405, { Allow: 'POST' });
+      response.end('Method not allowed');
+      return;
+    }
+    const body = await readJson(request);
+    const result = applyApproval(body?.approval);
+    sendJson(response, 200, result);
     return;
   }
 
