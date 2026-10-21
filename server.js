@@ -4,7 +4,6 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { setTimeout: delay } = require('node:timers/promises');
 const { DatabaseSync } = require('node:sqlite');
@@ -408,32 +407,9 @@ async function handleApi(request, response, url) {
 
 const listenHost = process.env.HOST || '127.0.0.1';
 const listenPort = Number(process.env.PORT) || 8765;
-const accessPassword = process.env.ASSISTANT_PASSWORD || '';
-const accessUser = process.env.ASSISTANT_USER || 'velan';
 const loopbackOnly = ['127.0.0.1', 'localhost', '::1'].includes(listenHost);
 
-function authorized(request) {
-  if (!accessPassword) return true;
-  const header = request.headers.authorization || '';
-  if (!header.startsWith('Basic ')) return false;
-  const supplied = Buffer.from(header.slice(6), 'base64').toString('utf8');
-  const separator = supplied.indexOf(':');
-  const safeEqual = (a, b) => {
-    const left = Buffer.from(a);
-    const right = Buffer.from(b);
-    return left.length === right.length && crypto.timingSafeEqual(left, right);
-  };
-  const userOk = safeEqual(supplied.slice(0, Math.max(separator, 0)), accessUser);
-  const passOk = safeEqual(supplied.slice(separator + 1), accessPassword);
-  return userOk && passOk;
-}
-
 const server = http.createServer((request, response) => {
-  if (!authorized(request)) {
-    response.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Assistant", charset="UTF-8"' });
-    response.end('Authentication required');
-    return;
-  }
   let url;
   try {
     url = new URL(request.url, `http://localhost:${listenPort}`);
@@ -573,10 +549,6 @@ server.on('error', (error) => {
   console.error(`Cannot start chat UI: ${error.message}`);
   void shutdown(1);
 });
-if (!loopbackOnly && !accessPassword) {
-  console.error('Refusing to listen on a non-local HOST without ASSISTANT_PASSWORD set.');
-  process.exit(1);
-}
 server.listen(listenPort, listenHost, async () => {
   try {
     await ensureOllama();

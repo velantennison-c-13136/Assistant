@@ -265,7 +265,7 @@ def write_file(file_path: str, content: str) -> str:
             rel_to_cwd = resolved.relative_to(DEFAULT_WORKING_DIR)
             rel_path = str(rel_to_cwd)
         except ValueError:
-            # Absolute path outside Assistant directory (e.g. /Users/vela-13136/LLM/test.txt)
+            # Absolute path outside Assistant directory
             rel_path = str(resolved)
 
         old_lines = old_content.splitlines(keepends=True) if existed else []
