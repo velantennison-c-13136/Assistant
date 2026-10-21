@@ -1,6 +1,6 @@
 # Personal Assistant: Start and Stop
 
-Local chat UI powered by Qwen through Ollama, with a deterministic code
+Local chat UI powered by your selected Ollama model, with a deterministic code
 assistant for planning, inspection, and approval-based file changes.
 
 ## Tools & Capabilities
@@ -146,7 +146,7 @@ The app automatically:
 2. Reuses it if it is already running.
 3. Otherwise starts Ollama using `~/LLM/Qwen` as the model directory.
 4. Waits up to 30 seconds for Ollama to become ready.
-5. Uses LangGraph to send your conversation to the selected Qwen model,
+5. Uses LangGraph to send your conversation to the selected Ollama model,
    using streaming attachment reading or the tool agent as described above.
 
 You do not need to run `ollama run qwen3.5:9b` separately. Sending a
