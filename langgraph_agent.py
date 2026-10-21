@@ -621,6 +621,23 @@ def split_request_and_attachments(content: str) -> tuple[str, str]:
     return request, separator + attachments if separator else ""
 
 
+def attachment_names(attachments: str) -> list[str]:
+    return list(dict.fromkeys(
+        match.strip()
+        for match in re.findall(r"(?m)^File:\s*(.+?)\s*$", attachments)
+        if match.strip()
+    ))
+
+
+def refers_to_previous_prompt(request: str) -> bool:
+    return bool(re.search(
+        r"\b(?:previous|prior|earlier|above|last)\b.{0,60}\b(?:prompt|request|one|message|text|response|answer|output)\b"
+        r"|\b(?:format|formatted|formatting|reformat)\b.{0,45}\b(?:previous|prior|earlier|above|last|one|it|that)\b",
+        request,
+        re.I | re.S,
+    ))
+
+
 def attachment_context(messages: list[BaseMessage]) -> str:
     return "\n\n".join(
         attachments
@@ -959,6 +976,11 @@ def invoke_text(
             num_predict=num_predict,
         )
         response = fallback_llm.invoke(prompt_messages, think=False)
+    if response.response_metadata.get("done_reason") == "length":
+        raise ValueError(
+            "The model stopped at its output or context limit. The reply is incomplete; "
+            "retry with a larger-context model or request smaller sections of the file."
+        )
     return text_from_response(response.content).strip()
 
 
@@ -980,23 +1002,58 @@ def refine_latest_user_request(
     if not original_request.strip():
         return messages, ""
 
+    previous_prompt = ""
+    previous_attachments = ""
+    if refers_to_previous_prompt(original_request):
+        previous_user = None
+        for message in reversed(messages[:user_index]):
+            if not isinstance(message, HumanMessage):
+                continue
+            candidate, _ = split_request_and_attachments(text_from_response(message.content))
+            if candidate.strip() and not is_confirmation_message(candidate):
+                previous_user = message
+                break
+        if previous_user is not None:
+            previous_prompt, previous_attachments = split_request_and_attachments(
+                text_from_response(previous_user.content)
+            )
+
+    filenames = attachment_names(attachments + previous_attachments)
+    rewrite_request = original_request
+    if previous_prompt.strip():
+        rewrite_request = (
+            "Previous user prompt to use as context only; improve the current request about it, "
+            "and do not answer or carry out this previous prompt:\n"
+            f"{previous_prompt.strip()}\n\n"
+            f"Current user request:\n{original_request}"
+        )
+    if filenames:
+        rewrite_request += "\n\nAttached file names (the file contents are available to the answering model):\n" + "\n".join(
+            f"- {filename}" for filename in filenames
+        )
+
     refined_request = invoke_text(
         model,
         endpoint,
         [
             SystemMessage(content=(
                 "Rewrite the user's request as a clear, actionable prompt while preserving the intended outcome. "
-                "Keep simple requests simple. Do not answer or carry out the request. Do not invent project facts, "
-                "Use only the user's prompt text; no attachment contents, file knowledge, or conversation history "
-                "are provided for rewriting. Do not request uploads, check file availability, or add facts inferred "
-                "from a named file. Keep references to supplied files as references. "
-                "file paths, APIs, or requirements. Preserve exact errors, logs, code, environment details, "
+                "Keep simple requests simple. Do not answer or carry out the request. Do not invent project facts. "
+                "Use only the current user's prompt and, when explicitly referenced, the immediately preceding "
+                "user prompt as context. Attachment names may be provided, but attachment contents and assistant "
+                "replies are not rewrite context. If the user refers to an attached file, improve the request as "
+                "an instruction to use that file; never ask the user to provide, paste, or upload its contents again. "
+                "For requests to print or format an attached file, ask to reproduce all content while preserving "
+                "every field and value, with readable formatting instead of summarizing or omitting content. "
+                "Do not check file availability or add facts inferred from a named file. "
+                "Keep references to supplied files as references. "
+                "Do not invent file paths, APIs, or requirements. Preserve exact errors, logs, code, environment details, "
                 "identities, and other supplied facts. For coding requests, include root-cause analysis, minimal "
                 "targeted changes, preservation of existing behavior, and relevant verification. Ask one concise "
                 "clarification question only if a critical ambiguity prevents a useful prompt. "
                 "Return only the improved prompt, without a label or explanation."
             )),
-            HumanMessage(content=original_request),
+            HumanMessage(content=rewrite_request),
         ],
         temperature=0.1,
         num_predict=1000,
@@ -1234,7 +1291,7 @@ def answer_from_observations(
         endpoint,
         [SystemMessage(content=prompt), HumanMessage(content=user_prompt)],
         temperature=0.1,
-        num_predict=900,
+        num_predict=-1 if attachment_context(messages) else 900,
     )
 
 
@@ -1249,7 +1306,7 @@ def run_code_assistant(messages: list[BaseMessage], model: str, endpoint: str) -
                 " Keep simple requests simple and do not add unrequested implementation steps."
             )), *messages],
             temperature=0.1,
-            num_predict=900,
+            num_predict=-1 if attachment_context(messages) else 900,
         )
         if not direct:
             raise ValueError("The assistant returned no answer.")
@@ -1346,7 +1403,7 @@ def run_code_assistant(messages: list[BaseMessage], model: str, endpoint: str) -
 
 
 def build_chat_graph(model: str, endpoint: str):
-    llm = build_llm(model, endpoint)
+    llm = build_llm(model, endpoint, num_predict=-1)
 
     def call_model(state: ChatState) -> dict[str, list[BaseMessage]]:
         emit({"message": {"thinking": "Reading attachments with the streaming LangGraph flow (no tools)...\n"}})
@@ -1360,6 +1417,11 @@ def build_chat_graph(model: str, endpoint: str):
             if text:
                 parts.append(text)
                 emit({"message": {"content": text}})
+            if chunk.response_metadata.get("done_reason") == "length":
+                raise ValueError(
+                    "The model stopped at its output or context limit. The reply is incomplete; "
+                    "retry with a larger-context model or request smaller sections of the file."
+                )
         content = "".join(parts).strip()
         if not content:
             raise ValueError("The assistant returned no answer.")

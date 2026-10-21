@@ -139,6 +139,10 @@
       display: block;
       white-space: pre;
     }
+    .content pre.is-collapsed code {
+      max-height: 260px;
+      overflow: auto;
+    }
     .content strong { color: #f3f3f3; font-weight: 700; }
     .content em { font-style: italic; }
     .content table {
@@ -203,6 +207,19 @@
       color: #aaa;
       text-transform: uppercase;
       letter-spacing: .5px;
+    }
+    .code-block-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .toggle-code {
+      min-height: 28px;
+      padding: 5px 10px;
+      font-size: 11px;
+      border-radius: 7px;
+      border-color: #555;
+      color: #ddd;
     }
     .copy-code {
       min-height: 28px;
@@ -713,6 +730,8 @@
     .attachment-preview-lines {
       display: flex;
       gap: 0;
+      width: max-content;
+      min-width: 100%;
     }
     .attachment-preview-line-numbers {
       flex-shrink: 0;
@@ -727,15 +746,15 @@
       white-space: pre;
     }
     .attachment-preview-line-content {
-      flex: 1;
-      min-width: 0;
+      flex: 0 0 auto;
+      width: max-content;
+      min-width: max-content;
       padding: 16px;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       font-size: 13px;
       line-height: 1.6;
       white-space: pre;
       color: #c9d1d9;
-      overflow-x: auto;
     }
     .attachment-chip-preview {
       background: transparent;
@@ -1441,6 +1460,37 @@
     // ────────────────────────────────────────────────────────────────────────
     // autoLoadChatFromUrl is called after chatHistoryReady is defined (at the bottom).
 
+    function buildAttachedChips(item) {
+      // Build the "Attached: ..." row for a history item.
+      // Uses fileContents for preview if available, otherwise plain text.
+      if (!item.files?.length) return null;
+      const names = document.createElement('div');
+      names.className = 'hint';
+      if (item.fileContents?.length) {
+        names.style.display = 'flex';
+        names.style.flexWrap = 'wrap';
+        names.style.alignItems = 'center';
+        names.style.gap = '6px';
+        const label = document.createElement('span');
+        label.textContent = 'Attached:';
+        names.append(label);
+        for (const fc of item.fileContents) {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'attachment-chip-preview';
+          chip.style.fontSize = '11px';
+          chip.innerHTML = `<svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true"><path d="M10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/><path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8zm8 3.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/></svg> ${fc.name}`;
+          chip.title = `Preview ${fc.name}`;
+          chip.setAttribute('aria-label', `Preview ${fc.name}`);
+          chip.addEventListener('click', () => openAttachmentPreview(fc));
+          names.append(chip);
+        }
+      } else {
+        names.textContent = `Attached: ${item.files.join(', ')}`;
+      }
+      return names;
+    }
+
     function reopenChat(chat) {
       if (busy || approvalBusy || readingFiles) return;
       const model = $('model');
@@ -1454,12 +1504,8 @@
       for (const item of history) {
         const rendered = message(item.role, item.display ?? item.content, item.fileEdits, item.approvalRequests, item.model);
         historyItemByArticle.set(rendered.article, item);
-        if (item.files?.length) {
-          const names = document.createElement('div');
-          names.className = 'hint';
-          names.textContent = `Attached: ${item.files.join(', ')}`;
-          rendered.article.append(names);
-        }
+        const chips = buildAttachedChips(item);
+        if (chips) rendered.article.append(chips);
       }
       renderChats();
       controls();
@@ -1747,11 +1793,30 @@
 
     function buildCodeBlock(language, source) {
       const pre = document.createElement('pre');
+      const isLong = source.split('\n').length > 12;
+      if (isLong) pre.classList.add('is-collapsed');
       const header = document.createElement('div');
       header.className = 'code-block-header';
       const label = document.createElement('div');
       label.className = 'code-language';
       label.textContent = language || 'code';
+      const actions = document.createElement('div');
+      actions.className = 'code-block-actions';
+      if (isLong) {
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'toggle-code';
+        toggle.textContent = 'Expand';
+        toggle.setAttribute('aria-label', 'Expand code block');
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.addEventListener('click', () => {
+          const expanded = pre.classList.toggle('is-collapsed') === false;
+          toggle.textContent = expanded ? 'Collapse' : 'Expand';
+          toggle.setAttribute('aria-label', `${expanded ? 'Collapse' : 'Expand'} code block`);
+          toggle.setAttribute('aria-expanded', String(expanded));
+        });
+        actions.append(toggle);
+      }
       const copy = document.createElement('button');
       copy.type = 'button';
       copy.className = 'copy-code';
@@ -1760,7 +1825,8 @@
       const code = document.createElement('code');
       const normalizedLanguage = (language || '').toLowerCase();
       code.innerHTML = highlightCode(source, normalizedLanguage);
-      header.append(label, copy);
+      actions.append(copy);
+      header.append(label, actions);
       pre.append(header, code);
       return pre;
     }
@@ -2554,12 +2620,8 @@
       for (const item of history) {
         const rendered = message(item.role, item.display ?? item.content, item.fileEdits, item.approvalRequests);
         historyItemByArticle.set(rendered.article, item);
-        if (item.files?.length) {
-          const names = document.createElement('div');
-          names.className = 'hint';
-          names.textContent = `Attached: ${item.files.join(', ')}`;
-          rendered.article.append(names);
-        }
+        const chips = buildAttachedChips(item);
+        if (chips) rendered.article.append(chips);
       }
       checkpoint = null;
       status(`Conversation restored to checkpoint: "${label}". You can continue from here.`);
@@ -3058,7 +3120,7 @@
       let completed = false;
       const fileEdits = [];
       const approvalRequests = [];
-      const userMessage = { role: 'user', content, display: instruction, files: sentFiles.map(file => file.name) };
+      const userMessage = { role: 'user', content, display: instruction, files: sentFiles.map(file => file.name), fileContents: sentFiles.map(file => ({ name: file.name, size: file.size, text: file.text })) };
       try {
         const response = await fetch('/api/assistant/chat', {
           method: 'POST',

@@ -44,15 +44,25 @@ Keep the terminal open, then visit:
 
 ## Prompt improvement and file access
 
-Before answering, the app uses `qwen3.5:9b` to improve only the current user's
-prompt text. Attachment contents and conversation history are not sent to this
-rewrite step. The selected answering model then receives the improved prompt
-along with the unchanged attachments and conversation context.
+Before answering, the app uses `qwen3.5:9b` to improve the current user's
+prompt text. When the current request explicitly refers to the previous prompt,
+that immediately preceding user prompt is also supplied as context; assistant
+replies and attachment contents are not sent to the rewrite step. Attached file
+names are provided so requests to print or format an attached file do not ask
+for its contents again. The selected answering model then receives the improved
+prompt along with the unchanged attachments and conversation context.
 
 Attached files are supplied as text, so the assistant does not need to find them
 on disk. Attachment-bearing messages are retained for follow-up questions even
 when older chat messages are compacted. Large attachments can still exceed the
 selected model's context capacity.
+
+Attachment answers have no fixed output-token cap. If Ollama reports that an
+output or context limit stopped generation, the UI marks the reply incomplete
+instead of saving it as a completed exchange. A model can still omit information;
+use the uploaded-file preview to compare its response with the original data.
+Collapsed code blocks limit only the visible height: scroll or expand to view
+the remaining output, and Copy copies the full generated block.
 
 In Code assistant mode, file and command tools can access paths outside the
 default working directory, including absolute paths and `~/` paths, subject to
