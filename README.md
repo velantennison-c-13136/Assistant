@@ -64,6 +64,21 @@ Raw provider errors remain available under **Technical error details**. Failed
 exchanges are not saved to model history, and the prompt is kept for retrying.
 Run the error-message tests with `node --test tests/chat-error.test.js`.
 
+### GPU memory errors
+
+On connection, if no installed model is already selected, the UI selects the
+smallest installed model by download size to reduce memory pressure. Explicit
+selections and saved-chat model choices are preserved. Download size is only a
+heuristic: model weights, context, and runtime buffers must all fit in memory.
+
+MLX/Metal out-of-memory errors now show guidance to choose a smaller installed
+model, close memory-heavy apps, or reduce attachments. The original error remains
+under **Technical error details**. Requests are not automatically retried or
+switched to another model, so completed tool actions cannot be replayed silently.
+The failed exchange stays out of model history and the prompt remains available.
+
+Run the memory-handling regressions with `node --test tests/model-memory.test.js`.
+
 Run the offline research regressions with the Python interpreter used by the
 server (or its virtual environment):
 
@@ -92,7 +107,15 @@ Run the diff regression tests with `node --test tests/file-diff.test.js`.
 - Model files stored in `/Users/vela-13136/LLM/Qwen`.
 
 No npm packages need to be installed. Chat history is stored in
-`chats.sqlite` in this directory. Install the Python assistant dependencies
+`chats.sqlite` in this directory. Saved conversations can be reopened even if
+their original model was deleted. They use the currently selected installed
+model instead, with a notice; if no model is available, the conversation is
+still readable, but connecting to Ollama with an installed model is required
+to continue chatting. The next saved reply records the selected model.
+
+Run the saved-chat regressions with `node --test tests/saved-chats.test.js`.
+
+Install the Python assistant dependencies
 once before starting:
 
 ```bash

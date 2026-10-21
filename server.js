@@ -209,7 +209,7 @@ async function streamLangGraphChat({ model, endpoint, messages, mode, signal, re
       clearTimeout(timeout);
       signal?.removeEventListener('abort', abortChild);
       if (error) reject(error);
-      else resolve(value);
+      else resolve(value ?? JSON.stringify({ message: {}, model }));
     }
 
     function abortChild() {
@@ -453,7 +453,7 @@ const server = http.createServer((request, response) => {
     });
     return;
   }
-  if (request.url === '/' || request.url === '/index.html') {
+  if (url.pathname === '/' || url.pathname === '/index.html') {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       response.writeHead(405, { Allow: 'GET, HEAD' });
       response.end('Method not allowed');

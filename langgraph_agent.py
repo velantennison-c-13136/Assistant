@@ -12,7 +12,7 @@ import urllib.request
 import warnings
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, TypedDict
+from typing import Annotated, Any, TypedDict
 from uuid import uuid4
 
 try:
@@ -177,15 +177,31 @@ def initialize_tool_context(messages: list[BaseMessage]) -> None:
         "create ", "new file", "add file", "write file", "generate ", "scaffold ",
         "readme", "documentation", "docs", "changelog"
     ))
-    allow_web_search = any(token in content for token in (
-        "web search", "search the web", "search online", "look up online", "google it",
-        "browse the web", "current", "latest", "today", "news", "recent"
-    ))
+    # Detect if this is clearly a local code/file task (editing, debugging, refactoring files).
     local_task = bool(re.search(
         r"\b(fix|debug|edit|modify|refactor|implement|update|change|review|explain|analyze|provide|date picker)\b",
         content,
         re.I
     ))
+    # A local task is only truly "local" when it also involves code/file references.
+    # If the message contains no file paths, code snippets, or file-related keywords,
+    # treat it as a general knowledge / research query and allow web search.
+    has_file_context = bool(
+        re.search(r"/(?:Users|home|var|etc|tmp)/", content)
+        or re.search(r"\.(py|js|ts|json|html|css|md|sh|yaml|yml|sql|txt|rs|go|java|cpp|c)\b", content)
+        or "```" in content
+        or re.search(r"\b(file|files|codebase|repo|repository|project|module|function|class|method|bug|error|test|lint|build|script)\b", content)
+    )
+    # Allow web search when:
+    # - not a local code task, OR
+    # - the query has no file/code context (i.e. it's a factual/research question, even if
+    #   it uses words like "explain" or "analyze"), OR
+    # - the user explicitly asked to search online
+    explicitly_wants_web = any(token in content for token in (
+        "web search", "search the web", "search online", "look up online", "google it",
+        "browse the web", "search for", "look up",
+    ))
+    allow_web_search = explicitly_wants_web or not (local_task and has_file_context)
     candidate_roots = extract_candidate_roots(messages)
     TOOL_CONTEXT["user_request"] = content
     TOOL_CONTEXT["read_files"] = set()
@@ -550,7 +566,17 @@ def fetch_web_page(url: str, max_chars: int = 4000) -> str:
             clean = re.sub(r"\s+", " ", clean).strip()
             return clean[:max_chars]
     except Exception as e:
-        return f"Error fetching web page '{url}': {e}"
+        # Surface HTTP status codes so the LLM knows to try a different URL
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        if status:
+            return (
+                f"Error fetching web page '{url}': HTTP {status}. "
+                "The page may be paywalled, blocked, or removed. Try a different source URL."
+            )
+        return (
+            f"Error fetching web page '{url}': {e}. "
+            "Try an alternative URL or use web_search to find a cached or mirror version."
+        )
 
 
 ALL_TOOLS = [read_file, write_file, list_files, run_command, web_search, fetch_web_page]
@@ -692,7 +718,7 @@ def synthesize_final_answer(model: str, endpoint: str, messages: list[BaseMessag
             f"{transcript}\n\n"
             "Now provide the final assistant answer to the user's most recent request."
         ))
-    ])
+    ], think=False)
     return text_from_response(response.content).strip()
 
 
@@ -705,7 +731,7 @@ def build_llm(
     num_predict: int = 1536,
     response_format: str | None = None,
 ) -> ChatOllama:
-    options: dict[str, object] = {
+    kwargs: dict[str, Any] = {
         "model": model,
         "base_url": endpoint,
         "temperature": temperature,
@@ -714,8 +740,8 @@ def build_llm(
         "keep_alive": "15m",
     }
     if response_format:
-        options["format"] = response_format
-    return ChatOllama(**options)
+        kwargs["format"] = response_format
+    return ChatOllama(**kwargs)
 
 
 def latest_user_request(messages: list[BaseMessage]) -> str:
@@ -758,7 +784,7 @@ def detect_request_kind(messages: list[BaseMessage]) -> str:
         return "plan"
     if re.search(r"\b(delete|remove)\b", content) and re.search(r"\b(file|files)\b", content):
         return "delete"
-    if re.search(r"\b(fix|edit|modify|update|change|implement|refactor)\b", content):
+    if re.search(r"(?<![\w-])(fix|edit|modify|update|change|implement|refactor)(?![\w-])", content):
         return "fix"
     if re.search(r"\b(explain|understand|analyze|review|what does|how does)\b", content):
         return "inspect"
@@ -919,7 +945,7 @@ def invoke_text(
         response_format=response_format,
     )
     try:
-        response = llm.invoke(prompt_messages)
+        response = llm.invoke(prompt_messages, think=False)
     except Exception as error:
         if not response_format or not structured_output_unavailable(error):
             raise
@@ -929,7 +955,7 @@ def invoke_text(
             temperature=temperature,
             num_predict=num_predict,
         )
-        response = fallback_llm.invoke(prompt_messages)
+        response = fallback_llm.invoke(prompt_messages, think=False)
     return text_from_response(response.content).strip()
 
 

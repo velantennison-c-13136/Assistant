@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Personal Assistant · Qwen + Ollama + Code Assistant</title>
+  <title>Personal Assistant</title>
   <style>
     :root { color-scheme: dark; font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #212121; color: #ececec; }
     * { box-sizing: border-box; }
@@ -25,13 +25,45 @@
     #saved-chats > details { min-height: 0; overflow: auto; flex: 1; }
     #saved-chats summary { color: #aaa; font-size: 12px; padding: 0 10px 12px; }
     #chat-list { display: grid; gap: 4px; }
-    .saved-chat { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; border-radius: 8px; }
+    .saved-chat { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; border-radius: 8px; }
     .saved-chat:hover { background: #262626; }
     .saved-chat button { border: 0; min-width: 0; text-align: left; }
     .saved-chat button[aria-current="true"] { background: #303030; }
     .chat-title { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; }
     .chat-meta { display: block; font-size: 10px; color: #999; margin-top: 5px; }
-    .saved-chat button:last-child { font-size: 10px; color: #bbb; padding: 6px; }
+
+    /* Context menu */
+    #chat-context-menu {
+      position: fixed;
+      z-index: 1000;
+      background: #2a2a2a;
+      border: 1px solid #494949;
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.45);
+      padding: 6px;
+      min-width: 180px;
+      display: none;
+    }
+    #chat-context-menu.visible { display: block; }
+    .ctx-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 12px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: #ddd;
+      font-size: 13px;
+      text-align: left;
+      cursor: pointer;
+      min-height: unset;
+      transition: background .12s, color .12s;
+    }
+    .ctx-menu-item:hover { background: #383838; color: #fff; }
+    .ctx-menu-item.danger { color: #ff938a; }
+    .ctx-menu-item.danger:hover { background: rgba(248,81,73,.14); color: #ff7b72; }
     .sidebar-note { font-size: 10px; padding: 16px 10px 0; border-top: 1px solid #303030; margin-bottom: 0; }
     #storage-error { color: #ffb4b4; font-size: 12px; overflow-wrap: anywhere; }
     .workspace { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
@@ -57,6 +89,7 @@
     .message.assistant { width: 100%; padding: 0 4px; }
     .message.assistant .content { max-width: 980px; }
     .role { font-size: 11px; color: #aaa; margin-bottom: 8px; font-weight: 600; }
+    .model-indicator { display: inline-block; font-size: 12px; color: #bbb; padding: 2px 8px; background: #2a2a2a; border-radius: 999px; margin-top: 4px; }
     .content { font-size: 15px; line-height: 1.7; }
     .content.plain { white-space: pre-wrap; }
     .content > :first-child { margin-top: 0; }
@@ -108,6 +141,63 @@
     }
     .content strong { color: #f3f3f3; font-weight: 700; }
     .content em { font-style: italic; }
+    .content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0;
+      font-size: 14px;
+      overflow-x: auto;
+      display: block;
+    }
+    .content table th,
+    .content table td {
+      border: 1px solid #3a3a3a;
+      padding: 8px 14px;
+      text-align: left;
+      white-space: nowrap;
+      color: #ddd;
+    }
+    .content table thead tr {
+      background: #2a2a2a;
+    }
+    .content table th {
+      font-weight: 700;
+      color: #f3f3f3;
+      background: #252525;
+    }
+    .content table tbody tr:nth-child(even) {
+      background: #1e1e1e;
+    }
+    .content table tbody tr:hover {
+      background: #2c2c2c;
+    }
+    .content table a {
+      color: #79c0ff;
+      text-decoration: underline;
+    }
+    .content a {
+      color: #79c0ff;
+      text-decoration: underline;
+      word-break: break-all;
+    }
+    .content a:hover {
+      color: #a5d6ff;
+      text-decoration: underline;
+    }
+    .content blockquote {
+      margin: 12px 0;
+      padding: 10px 16px;
+      border-left: 3px solid #4a9eff;
+      background: #1c2230;
+      border-radius: 0 8px 8px 0;
+      color: #b8c0cc;
+      font-style: italic;
+    }
+    .content blockquote p {
+      margin: 0;
+      color: #b8c0cc;
+    }
+    .content del { color: #888; text-decoration: line-through; }
     .content .code-language {
       font-size: 11px;
       color: #aaa;
@@ -674,6 +764,223 @@
       .copilot-file-diff { font-size: 11.5px; }
       .copilot-diff-line { padding-right: 10px; padding-left: 10px; }
     }
+
+    /* ── Model pill in chat header ── */
+    .model-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px 5px 8px;
+      background: #252b33;
+      border: 1px solid #3a424d;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+      color: #c9d1d9;
+      cursor: default;
+      user-select: none;
+      transition: background .15s, border-color .15s;
+      position: relative;
+    }
+    .model-pill-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #3fb950;
+      flex-shrink: 0;
+      box-shadow: 0 0 0 2px rgba(63,185,80,.18);
+    }
+    .model-pill-name {
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .model-switcher-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 10px;
+      background: transparent;
+      border: 1px solid #3a424d;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+      color: #8b949e;
+      cursor: pointer;
+      transition: background .15s, color .15s, border-color .15s;
+      min-height: unset;
+    }
+    .model-switcher-btn:hover:not(:disabled) {
+      background: #252b33;
+      color: #c9d1d9;
+      border-color: #58616d;
+    }
+
+    /* ── Inline model switcher popover ── */
+    #model-popover {
+      position: fixed;
+      z-index: 500;
+      background: #2a2a2a;
+      border: 1px solid #494949;
+      border-radius: 12px;
+      box-shadow: 0 8px 28px rgba(0,0,0,.5);
+      padding: 10px 8px;
+      min-width: 220px;
+      max-width: 320px;
+      display: none;
+    }
+    #model-popover.visible { display: block; }
+    #model-popover-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #8b949e;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      padding: 2px 8px 8px;
+    }
+    .model-option-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 10px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: #ddd;
+      font-size: 13px;
+      text-align: left;
+      cursor: pointer;
+      min-height: unset;
+      transition: background .12s;
+    }
+    .model-option-btn:hover { background: #383838; color: #fff; }
+    .model-option-btn.active { color: #79c0ff; font-weight: 600; }
+    .model-option-btn.active::after {
+      content: "✓";
+      margin-left: auto;
+      font-size: 11px;
+    }
+
+    /* ── Checkpoint feature ── */
+    .msg-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+      opacity: 0;
+      transition: opacity .15s;
+    }
+    .message:hover .msg-actions,
+    .message:focus-within .msg-actions { opacity: 1; }
+    .msg-action-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 9px;
+      background: #252b33;
+      border: 1px solid #3a424d;
+      border-radius: 7px;
+      font-size: 11px;
+      font-weight: 500;
+      color: #8b949e;
+      cursor: pointer;
+      min-height: unset;
+      transition: background .12s, color .12s, border-color .12s;
+    }
+    .msg-action-btn:hover:not(:disabled) {
+      background: #30363d;
+      color: #c9d1d9;
+      border-color: #58616d;
+    }
+    .msg-action-btn:disabled { opacity: .35; cursor: not-allowed; }
+    .msg-action-btn svg { flex-shrink: 0; }
+
+    /* Edit prompt inline editor */
+    .edit-prompt-wrap {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .edit-prompt-wrap.open { display: flex; }
+    .edit-prompt-ta {
+      width: 100%;
+      background: #1c2230;
+      border: 1px solid #3a424d;
+      border-radius: 10px;
+      padding: 10px 12px;
+      color: #f0f6fc;
+      font: inherit;
+      font-size: 14px;
+      resize: vertical;
+      min-height: 64px;
+    }
+    .edit-prompt-ta:focus { outline: 2px solid #58a6ff; border-color: #58a6ff; }
+    .edit-prompt-actions { display: flex; gap: 8px; align-items: center; }
+    .edit-resend-btn {
+      padding: 7px 14px;
+      background: #2f81f7;
+      color: #fff;
+      font-weight: 600;
+      border: 0;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      min-height: unset;
+    }
+    .edit-resend-btn:hover:not(:disabled) { background: #4493f8; }
+    .edit-cancel-btn {
+      padding: 7px 14px;
+      background: transparent;
+      border: 1px solid #454d57;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #8b949e;
+      cursor: pointer;
+      min-height: unset;
+    }
+    .edit-cancel-btn:hover:not(:disabled) { background: #252b33; color: #c9d1d9; }
+
+    /* Checkpoint restore banner */
+    .checkpoint-banner {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      background: rgba(47,129,247,.08);
+      border: 1px solid rgba(47,129,247,.28);
+      border-radius: 10px;
+      font-size: 12px;
+      color: #79c0ff;
+      flex-shrink: 0;
+    }
+    .checkpoint-banner svg { flex-shrink: 0; }
+    .checkpoint-banner-text { flex: 1; }
+    .checkpoint-restore-btn {
+      padding: 5px 12px;
+      background: #2f81f7;
+      color: #fff;
+      font-weight: 600;
+      border: 0;
+      border-radius: 7px;
+      font-size: 12px;
+      cursor: pointer;
+      min-height: unset;
+      white-space: nowrap;
+    }
+    .checkpoint-restore-btn:hover { background: #4493f8; }
+    .checkpoint-discard-btn {
+      padding: 5px 10px;
+      background: transparent;
+      border: 1px solid #454d57;
+      border-radius: 7px;
+      font-size: 12px;
+      color: #8b949e;
+      cursor: pointer;
+      min-height: unset;
+    }
+    .checkpoint-discard-btn:hover { background: #252b33; color: #c9d1d9; }
   </style>
 </head>
 <body>
@@ -690,7 +997,7 @@
     </aside>
     <div class="workspace">
     <header class="page-header">
-      <h1>Personal Assistant <span class="local-badge">Qwen + Ollama + Code Assistant</span></h1>
+      <h1>Personal Assistant</h1>
       <details class="settings-menu">
       <summary>Settings</summary>
       <div class="settings">
@@ -698,7 +1005,7 @@
         <input id="endpoint" type="url" value="http://127.0.0.1:11434" spellcheck="false">
       </label>
       <label>Model
-        <select id="model"><option value="qwen3.5:9b">qwen3.5:9b</option></select>
+        <select id="model"><option value="">Connect to load installed models</option></select>
       </label>
       <label>Attachment processing
         <select id="attachment-mode" aria-describedby="attachment-mode-help">
@@ -735,6 +1042,17 @@
         <label for="files" class="attach-label">+ Attach files
           <input id="files" type="file" multiple aria-describedby="file-help">
         </label>
+        <!-- Model pill + switcher inside composer -->
+        <button type="button" id="model-switcher-btn" class="model-switcher-btn" title="Change model" disabled>
+          <span class="model-pill-dot" id="model-pill-dot"></span>
+          <span id="active-model-name">—</span>
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="opacity:.6"><path d="M4.427 7.427l3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 7H4.604a.25.25 0 0 0-.177.427z"/></svg>
+        </button>
+        <!-- Model popover (opens upward) -->
+        <div id="model-popover" role="listbox" aria-label="Select model">
+          <div id="model-popover-title">Switch model</div>
+          <div id="model-popover-list"></div>
+        </div>
         <span class="composer-limit">Text, logs, code &middot; 1 MB</span>
         <button id="send" type="submit" disabled>Send &uarr;</button>
         <button id="stop" type="button" disabled>Stop</button>
@@ -747,6 +1065,18 @@
     </div>
     </div>
   </main>
+  <!-- Right-click context menu for chat history items -->
+  <div id="chat-context-menu" role="menu" aria-label="Chat options">
+    <button type="button" class="ctx-menu-item" id="ctx-open-tab" role="menuitem">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.636 3.5a.5.5 0 0 0-.5-.5H1.5A1.5 1.5 0 0 0 0 4.5v10A1.5 1.5 0 0 0 1.5 16h10a1.5 1.5 0 0 0 1.5-1.5V7.864a.5.5 0 0 0-1 0V14.5a.5.5 0 0 1-.5.5h-10a.5.5 0 0 1-.5-.5v-10a.5.5 0 0 1 .5-.5h6.636a.5.5 0 0 0 .5-.5z"/><path d="M16 .5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0 0 1h3.793L6.146 9.146a.5.5 0 1 0 .708.708L15 1.707V5.5a.5.5 0 0 0 1 0v-5z"/></svg>
+      Open in new tab
+    </button>
+    <button type="button" class="ctx-menu-item danger" id="ctx-delete" role="menuitem">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/></svg>
+      Delete
+    </button>
+  </div>
+
   <dialog id="file-diff-dialog" aria-labelledby="file-diff-title">
     <div class="file-diff-dialog-header">
       <h2 id="file-diff-title"></h2>
@@ -766,6 +1096,11 @@
       }
     });
     const history = [];
+    const historyItemByArticle = new WeakMap();
+    function historyIndexForArticle(article) {
+      const item = historyItemByArticle.get(article);
+      return item ? history.indexOf(item) : -1;
+    }
     const chatFileChanges = new Map();
     $('file-diff-close').addEventListener('click', () => $('file-diff-dialog').close());
     $('file-diff-dialog').addEventListener('keydown', (event) => {
@@ -785,6 +1120,7 @@
     let approvalBusy = false;
     let controller = null;
     let connectionAttempt = 0;
+    let installedModels = [];
     let readingFiles = false;
     const attachments = [];
     const maxAttachmentBytes = 1024 * 1024;
@@ -870,6 +1206,104 @@
       renderChats();
     }
 
+    // ── Context menu state ──────────────────────────────────────────────────
+    let ctxChat = null; // the chat object targeted by the last right-click
+
+    function hideContextMenu() {
+      $('chat-context-menu').classList.remove('visible');
+      ctxChat = null;
+    }
+
+    function showContextMenu(x, y, chat) {
+      ctxChat = chat;
+      const menu = $('chat-context-menu');
+      menu.classList.add('visible');
+      // Position within viewport
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      let left = x;
+      let top = y;
+      // Temporarily show to measure size
+      const rect = menu.getBoundingClientRect();
+      if (left + rect.width > vw - 8) left = vw - rect.width - 8;
+      if (top + rect.height > vh - 8) top = vh - rect.height - 8;
+      menu.style.left = `${Math.max(8, left)}px`;
+      menu.style.top = `${Math.max(8, top)}px`;
+    }
+
+    // Hide menu on outside click / scroll / Escape.
+    // Use mousedown (fires before click) so menu buttons' click handlers still
+    // have access to ctxChat when they fire on the subsequent click event.
+    document.addEventListener('mousedown', (event) => {
+      if (!$('chat-context-menu').contains(event.target)) hideContextMenu();
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') hideContextMenu();
+    });
+    document.addEventListener('scroll', hideContextMenu, true);
+
+    // "Open in new tab" action
+    $('ctx-open-tab').addEventListener('click', () => {
+      const chat = ctxChat;  // capture before hideContextMenu clears it
+      hideContextMenu();
+      if (!chat) return;
+      // Encode the chat data in URL params and open a fresh tab pointing to same page
+      const params = new URLSearchParams({ chatId: chat.id });
+      window.open(`${location.pathname}?${params}`, '_blank', 'noopener');
+    });
+
+    // "Delete" action
+    $('ctx-delete').addEventListener('click', async () => {
+      const chat = ctxChat;
+      hideContextMenu();
+      if (!chat) return;
+      if (busy || approvalBusy || readingFiles || !window.confirm(`Delete saved chat "${chat.title}"?`)) return;
+      try {
+        await chatRequest(`/api/chats/${encodeURIComponent(chat.id)}`, { method: 'DELETE' });
+        savedChats = savedChats.filter(item => item.id !== chat.id);
+        showHistoryError('');
+        renderChats();
+        if (activeChatId === chat.id) newConversation();
+        status('Saved chat deleted.');
+      } catch (error) {
+        showHistoryError(`Chat history was not updated: ${error.message}`);
+      }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────
+    // autoLoadChatFromUrl is called after chatHistoryReady is defined (at the bottom).
+
+    function reopenChat(chat) {
+      if (busy || approvalBusy || readingFiles) return;
+      const model = $('model');
+      const savedModelInstalled = Array.from(model.options).some(option => option.value === chat.model);
+      if (savedModelInstalled) model.value = chat.model;
+      else if (!model.value && model.options.length) model.value = model.options[0].value;
+      newConversation();
+      activeChatId = chat.id;
+      updateModelPill();
+      history.push(...chat.messages.map(item => ({ ...item })));
+      for (const item of history) {
+        const rendered = message(item.role, item.display ?? item.content, item.fileEdits, item.approvalRequests, item.model);
+        historyItemByArticle.set(rendered.article, item);
+        if (item.files?.length) {
+          const names = document.createElement('div');
+          names.className = 'hint';
+          names.textContent = `Attached: ${item.files.join(', ')}`;
+          rendered.article.append(names);
+        }
+      }
+      renderChats();
+      controls();
+      if (!connected || !model.value) {
+        status('Saved conversation reopened. Connect to Ollama with an installed model to continue chatting.', true);
+      } else if (!savedModelInstalled) {
+        status(`Saved conversation reopened. ${chat.model} is no longer installed; using ${model.value} instead. You can choose another model below.`);
+      } else {
+        status('Saved conversation reopened. You can continue chatting.');
+      }
+    }
+
     function renderChats() {
       $('chat-list').replaceChildren();
       if (!savedChats.length) $('chat-list').textContent = 'No saved conversations yet.';
@@ -886,47 +1320,13 @@
         meta.textContent = `${chat.model} | ${new Date(chat.updatedAt).toLocaleString()}`;
         open.append(title, meta);
         open.setAttribute('aria-current', String(chat.id === activeChatId));
-        open.addEventListener('click', () => {
-          if (busy || approvalBusy || readingFiles) return;
-          if (!Array.from($('model').options).some(option => option.value === chat.model)) {
-            status(`Cannot reopen: ${chat.model} is not installed on the connected server.`, true);
-            return;
-          }
-          newConversation();
-          activeChatId = chat.id;
-          $('model').value = chat.model;
-          history.push(...chat.messages.map(item => ({ ...item })));
-          for (const item of history) {
-            const rendered = message(item.role, item.display ?? item.content, item.fileEdits, item.approvalRequests);
-            if (item.files?.length) {
-              const names = document.createElement('div');
-              names.className = 'hint';
-              names.textContent = `Attached: ${item.files.join(', ')}`;
-              rendered.article.append(names);
-            }
-          }
-          renderChats();
-          controls();
-          status('Saved conversation reopened. You can continue chatting.');
+        open.addEventListener('click', () => reopenChat(chat));
+        // Right-click to show context menu
+        row.addEventListener('contextmenu', (event) => {
+          event.preventDefault();
+          showContextMenu(event.clientX, event.clientY, chat);
         });
-        const remove = document.createElement('button');
-        remove.type = 'button';
-        remove.textContent = 'Delete';
-        remove.setAttribute('aria-label', `Delete chat ${chat.title}`);
-        remove.addEventListener('click', async () => {
-          if (busy || approvalBusy || readingFiles || !window.confirm(`Delete saved chat "${chat.title}"?`)) return;
-          try {
-            await chatRequest(`/api/chats/${encodeURIComponent(chat.id)}`, { method: 'DELETE' });
-            savedChats = savedChats.filter(item => item.id !== chat.id);
-            showHistoryError('');
-            renderChats();
-            if (activeChatId === chat.id) newConversation();
-            status('Saved chat deleted.');
-          } catch (error) {
-            showHistoryError(`Chat history was not updated: ${error.message}`);
-          }
-        });
-        row.append(open, remove);
+        row.append(open);
         $('chat-list').append(row);
       }
       for (const button of $('chat-list').querySelectorAll('button')) button.disabled = busy || readingFiles;
@@ -940,7 +1340,10 @@
         title: (history[0].display || history[0].content).slice(0, 80),
         model: $('model').value,
         updatedAt: new Date().toISOString(),
-        messages: history.map(item => ({ ...item }))
+        messages: history.map(item => ({ 
+          ...item, 
+          model: item.model ?? $('model').value 
+        })) // Preserve per-message model or use chat default
       };
       await chatRequest(`/api/chats/${encodeURIComponent(id)}`, {
         method: 'PUT',
@@ -967,6 +1370,10 @@
       for (const button of $('attachments').querySelectorAll('button')) button.disabled = busy || approvalBusy || readingFiles;
       for (const button of $('chat-list').querySelectorAll('button')) button.disabled = busy || approvalBusy || readingFiles;
       for (const button of $('messages').querySelectorAll('.approval-action')) button.disabled = approvalBusy || busy || button.closest('.approval-card')?.classList.contains('approved') || button.closest('.approval-card')?.classList.contains('rejected');
+      // Model pill + switcher
+      const modelName = $('model').value || '—';
+      $('active-model-name').textContent = modelName;
+      $('model-switcher-btn').disabled = busy || approvalBusy || readingFiles || !connected;
     }
 
     function renderAttachments() {
@@ -1049,25 +1456,53 @@
       return url.origin;
     }
 
+    function makeLink(href, labelText) {
+      const a = document.createElement('a');
+      a.href = href;
+      a.textContent = labelText;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      return a;
+    }
+
     function appendInlineFormatted(target, text) {
-      const pattern = /(`[^`\n]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*|_[^_\n]+_)/g;
+      // Pattern order matters: backtick first (no nested parsing), then links, then bold/italic/strikethrough/bare-url
+      const pattern = /(`[^`\n]+`|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|~~[^~\n]+~~|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*|_[^_\n]+_|https?:\/\/[^\s<>"')\]]+)/g;
       let lastIndex = 0;
       for (const match of text.matchAll(pattern)) {
         const [token] = match;
         const index = match.index;
         if (index > lastIndex) target.append(document.createTextNode(text.slice(lastIndex, index)));
-        if ((token.startsWith('**') && token.endsWith('**')) || (token.startsWith('__') && token.endsWith('__'))) {
+
+        if (token.startsWith('`') && token.endsWith('`')) {
+          // Inline code
+          const code = document.createElement('code');
+          code.textContent = token.slice(1, -1);
+          target.append(code);
+        } else if (token.startsWith('[') && match[2] && match[3]) {
+          // Markdown link [label](url)
+          target.append(makeLink(match[3], match[2]));
+        } else if (token.startsWith('~~') && token.endsWith('~~')) {
+          // Strikethrough ~~text~~
+          const del = document.createElement('del');
+          del.textContent = token.slice(2, -2);
+          target.append(del);
+        } else if ((token.startsWith('**') && token.endsWith('**')) || (token.startsWith('__') && token.endsWith('__'))) {
+          // Bold
           const strong = document.createElement('strong');
           strong.textContent = token.slice(2, -2);
           target.append(strong);
         } else if ((token.startsWith('*') && token.endsWith('*')) || (token.startsWith('_') && token.endsWith('_'))) {
+          // Italic
           const em = document.createElement('em');
           em.textContent = token.slice(1, -1);
           target.append(em);
-        } else if (token.startsWith('`') && token.endsWith('`')) {
-          const code = document.createElement('code');
-          code.textContent = token.slice(1, -1);
-          target.append(code);
+        } else if (/^https?:\/\//.test(token)) {
+          // Bare URL auto-link — strip trailing punctuation that's likely not part of the URL
+          const url = token.replace(/[.,;:!?'")\]]+$/, '');
+          const trailing = token.slice(url.length);
+          target.append(makeLink(url, url));
+          if (trailing) target.append(document.createTextNode(trailing));
         }
         lastIndex = index + token.length;
       }
@@ -1191,6 +1626,21 @@
             continue;
           }
 
+          // Blockquote: lines starting with >
+          if (/^\s*>/.test(lines[lineIndex])) {
+            const bqLines = [];
+            while (lineIndex < lines.length && /^\s*>/.test(lines[lineIndex])) {
+              bqLines.push(lines[lineIndex].replace(/^\s*>\s?/, ''));
+              lineIndex++;
+            }
+            const blockquote = document.createElement('blockquote');
+            const bqP = document.createElement('p');
+            appendInlineFormatted(bqP, bqLines.join('\n'));
+            blockquote.append(bqP);
+            container.append(blockquote);
+            continue;
+          }
+
           if (/^\s*(?:[-*]|\d+\.)\s+/.test(lines[lineIndex])) {
             const listLines = [];
             while (lineIndex < lines.length && /^\s*(?:[-*]|\d+\.)\s+/.test(lines[lineIndex])) {
@@ -1201,13 +1651,60 @@
             continue;
           }
 
+          // Markdown table: line contains at least one pipe character
+          if (/^\|/.test(lines[lineIndex].trim()) || /\|/.test(lines[lineIndex])) {
+            const tableLines = [];
+            while (lineIndex < lines.length && lines[lineIndex].trim() && /\|/.test(lines[lineIndex])) {
+              tableLines.push(lines[lineIndex]);
+              lineIndex++;
+            }
+            if (tableLines.length >= 2) {
+              // Check second line is a separator row (e.g. |---|---|)
+              const sepLine = tableLines[1];
+              const isSeparator = /^\|?[\s\-:|]+(\|[\s\-:|]+)*\|?$/.test(sepLine.trim());
+              if (isSeparator) {
+                const table = document.createElement('table');
+                const thead = document.createElement('thead');
+                const tbody = document.createElement('tbody');
+                const parseRow = (line) =>
+                  line.trim().replace(/^\||\|$/g, '').split('|').map(cell => cell.trim());
+                // Header row
+                const headerRow = document.createElement('tr');
+                for (const cell of parseRow(tableLines[0])) {
+                  const th = document.createElement('th');
+                  appendInlineFormatted(th, cell);
+                  headerRow.append(th);
+                }
+                thead.append(headerRow);
+                // Data rows (skip separator row at index 1)
+                for (let r = 2; r < tableLines.length; r++) {
+                  const tr = document.createElement('tr');
+                  for (const cell of parseRow(tableLines[r])) {
+                    const td = document.createElement('td');
+                    appendInlineFormatted(td, cell);
+                    tr.append(td);
+                  }
+                  tbody.append(tr);
+                }
+                table.append(thead, tbody);
+                container.append(table);
+                continue;
+              }
+            }
+            // Not a valid table — fall through and treat as paragraph
+            const paragraphLines2 = tableLines;
+            appendParagraph(container, paragraphLines2);
+            continue;
+          }
+
           const paragraphLines = [];
           while (
             lineIndex < lines.length &&
             lines[lineIndex].trim() &&
             !/^(#{1,6})\s+/.test(lines[lineIndex]) &&
             !/^\s*---+\s*$/.test(lines[lineIndex]) &&
-            !/^\s*(?:[-*]|\d+\.)\s+/.test(lines[lineIndex])
+            !/^\s*(?:[-*]|\d+\.)\s+/.test(lines[lineIndex]) &&
+            !/\|/.test(lines[lineIndex])
           ) {
             paragraphLines.push(lines[lineIndex]);
             lineIndex++;
@@ -1619,7 +2116,17 @@
       controls();
       status(approval.kind === 'delete' ? 'Deleting file after approval...' : 'Applying approved change...');
       const user = message('user', userText);
-      history.push({ role: 'user', content: userText, display: userText });
+      const userMessage = { role: 'user', content: userText, display: userText };
+      history.push(userMessage);
+      historyItemByArticle.set(user.article, userMessage);
+      let chatModel = $(model) ? $(model).value : null;
+      // Only use history model if it differs from current selection
+      if (history.length > 0 && chatModel !== null && chatModel !== "" && chatModel !== "—")
+        for (const item of history) {
+          if (item.model && item.model !== chatModel)
+            chatModel = item.model
+            break
+        }
       try {
         const response = await chatRequest('/api/assistant/approval', {
           method: 'POST',
@@ -1630,8 +2137,10 @@
         const appliedText = typeof response.message === 'string' && response.message.trim()
           ? response.message.trim()
           : (approval.kind === 'delete' ? 'Approved deletion applied.' : 'Approved change applied.');
-        message('assistant', appliedText, response.fileEdit ? [response.fileEdit] : []);
-        history.push({ role: 'assistant', content: appliedText, fileEdits: response.fileEdit ? [response.fileEdit] : [] });
+        const assistantMessage = { role: 'assistant', content: appliedText, fileEdits: response.fileEdit ? [response.fileEdit] : [], model: chatModel };
+        const assistant = message('assistant', appliedText, assistantMessage.fileEdits, [], chatModel);
+        history.push(assistantMessage);
+        historyItemByArticle.set(assistant.article, assistantMessage);
         await saveConversationSafely('Approved change applied.');
       } catch (error) {
         history.pop();
@@ -1647,14 +2156,26 @@
       approvalBusy = true;
       controls();
       const user = message('user', userText);
-      history.push({ role: 'user', content: userText, display: userText });
+      const userMessage = { role: 'user', content: userText, display: userText };
+      history.push(userMessage);
+      historyItemByArticle.set(user.article, userMessage);
+      let chatModel = $(model) ? $(model).value : null;
+      // Only use history model if it differs from current selection
+      if (history.length > 0 && chatModel !== null && chatModel !== "" && chatModel !== "—")
+        for (const item of history) {
+          if (item.model && item.model !== chatModel)
+            chatModel = item.model
+            break
+        }
       setApprovalStatus(approval.id, 'rejected');
       updateApprovalCardState(approval.id, 'rejected', 'Rejected. No file changes were applied.');
       const rejectedText = approval.kind === 'delete'
         ? 'Deletion rejected. No files were removed.'
         : 'Change rejected. No files were modified.';
-      message('assistant', rejectedText);
-      history.push({ role: 'assistant', content: rejectedText });
+      const assistantMessage = { role: 'assistant', content: rejectedText, model: chatModel };
+      const assistant = message('assistant', rejectedText, [], [], chatModel);
+      history.push(assistantMessage);
+      historyItemByArticle.set(assistant.article, assistantMessage);
       await saveConversationSafely('Change rejected.');
       approvalBusy = false;
       controls();
@@ -1752,8 +2273,10 @@
           const appliedText = typeof response.message === 'string' && response.message.trim()
             ? response.message.trim()
             : (approval.kind === 'delete' ? 'Approved deletion applied.' : 'Approved change applied.');
-          message('assistant', appliedText, response.fileEdit ? [response.fileEdit] : []);
-          history.push({ role: 'assistant', content: appliedText, fileEdits: response.fileEdit ? [response.fileEdit] : [] });
+          const assistantMessage = { role: 'assistant', content: appliedText, fileEdits: response.fileEdit ? [response.fileEdit] : [], model: chatModel };
+          const assistant = message('assistant', appliedText, assistantMessage.fileEdits, [], chatModel);
+          history.push(assistantMessage);
+          historyItemByArticle.set(assistant.article, assistantMessage);
           await saveConversationSafely('Approved change applied.');
         } catch (error) {
           approval.status = 'pending';
@@ -1773,8 +2296,10 @@
         const rejectedText = approval.kind === 'delete'
           ? 'Deletion rejected. No files were removed.'
           : 'Change rejected. No files were modified.';
-        message('assistant', rejectedText);
-        history.push({ role: 'assistant', content: rejectedText });
+        const assistantMessage = { role: 'assistant', content: rejectedText, model: chatModel };
+        const assistant = message('assistant', rejectedText, [], [], chatModel);
+        history.push(assistantMessage);
+        historyItemByArticle.set(assistant.article, assistantMessage);
         await saveConversationSafely('Change rejected.');
       });
 
@@ -1791,7 +2316,156 @@
       renderMarkdownContent(node, text);
     }
 
-    function message(role, text, fileEdits = [], approvalRequests = []) {
+    // ── Checkpoint state ─────────────────────────────────────────────────────
+    // A checkpoint is a snapshot of the history array taken at a specific turn.
+    // Only one checkpoint can exist at a time (like Copilot).
+    let checkpoint = null; // { historySnapshot, label, bannerEl }
+
+    function removeCheckpointBanner() {
+      if (checkpoint?.bannerEl) {
+        checkpoint.bannerEl.remove();
+        checkpoint.bannerEl = null;
+      }
+    }
+
+    function saveCheckpoint(historyIndex, label, silent = false) {
+      removeCheckpointBanner();
+      // Deep clone the history slice up to (and including) historyIndex
+      const snap = history.slice(0, historyIndex + 1).map(item => ({ ...item }));
+
+      if (silent) {
+        // Silent auto-checkpoint: store snapshot only, no banner, no status message.
+        // The banner is created lazily when the user explicitly wants to restore.
+        checkpoint = { historySnapshot: snap, label, bannerEl: null, pendingBanner: true };
+        return;
+      }
+
+      const banner = document.createElement('div');
+      banner.className = 'checkpoint-banner';
+      banner.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1.5A5.5 5.5 0 1 1 8 13.5 5.5 5.5 0 0 1 8 2.5zM8 4a.75.75 0 0 1 .75.75v3.5l2 1.15a.75.75 0 0 1-.75 1.3l-2.25-1.3A.75.75 0 0 1 7.25 8.5v-3.75A.75.75 0 0 1 8 4z"/></svg>
+        <span class="checkpoint-banner-text">Checkpoint saved at: <strong>${label}</strong></span>
+        <button type="button" class="checkpoint-restore-btn">Restore</button>
+        <button type="button" class="checkpoint-discard-btn">Discard</button>
+      `;
+      banner.querySelector('.checkpoint-restore-btn').addEventListener('click', () => {
+        if (busy || approvalBusy) return;
+        restoreCheckpoint();
+      });
+      banner.querySelector('.checkpoint-discard-btn').addEventListener('click', () => {
+        checkpoint = null;
+        banner.remove();
+        status('Checkpoint discarded.');
+      });
+      // Insert banner just before the composer
+      $('composer').insertAdjacentElement('beforebegin', banner);
+      checkpoint = { historySnapshot: snap, label, bannerEl: banner, pendingBanner: false };
+      status(`Checkpoint saved at "${label}". Click Restore to rewind to this point.`);
+    }
+
+    function restoreCheckpoint() {
+      if (!checkpoint) return;
+      const snap = checkpoint.historySnapshot;
+      const label = checkpoint.label;
+      // Reset conversation to the checkpointed state
+      $('file-diff-dialog').close();
+      history.length = 0;
+      history.push(...snap.map(item => ({ ...item })));
+      $('messages').replaceChildren();
+      $('file-change-list').replaceChildren();
+      chatFileChanges.clear();
+      $('file-changes').hidden = true;
+      // Re-render messages
+      for (const item of history) {
+        const rendered = message(item.role, item.display ?? item.content, item.fileEdits, item.approvalRequests);
+        historyItemByArticle.set(rendered.article, item);
+        if (item.files?.length) {
+          const names = document.createElement('div');
+          names.className = 'hint';
+          names.textContent = `Attached: ${item.files.join(', ')}`;
+          rendered.article.append(names);
+        }
+      }
+      checkpoint = null;
+      status(`Conversation restored to checkpoint: "${label}". You can continue from here.`);
+      saveConversationSafely('Checkpoint restored.');
+    }
+
+    // ── Model pill / switcher ─────────────────────────────────────────────────
+    function updateModelPill() {
+      const modelName = $('model').value || '—';
+      $('active-model-name').textContent = modelName;
+      // Sync popover active state
+      for (const btn of $('model-popover-list').querySelectorAll('.model-option-btn')) {
+        btn.classList.toggle('active', btn.dataset.model === modelName);
+      }
+    }
+
+    function rebuildModelPopover() {
+      const list = $('model-popover-list');
+      list.replaceChildren();
+      for (const option of $('model').options) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'model-option-btn';
+        btn.dataset.model = option.value;
+        btn.textContent = option.value;
+        if (option.value === $('model').value) btn.classList.add('active');
+        btn.addEventListener('click', () => {
+          if (busy || approvalBusy || readingFiles) return;
+          if (option.value === $('model').value) { hideModelPopover(); return; }
+          // Update model without clearing the conversation
+          $('model').value = option.value;
+          updateModelPill();
+          hideModelPopover();
+          status(`Model switched to ${option.value}. Continuing current conversation.`);
+        });
+        list.append(btn);
+      }
+    }
+
+    let modelPopoverOpen = false;
+    function showModelPopover() {
+      rebuildModelPopover();
+      const pop = $('model-popover');
+      const btn = $('model-switcher-btn');
+      pop.classList.add('visible');
+      modelPopoverOpen = true;
+      // Measure after making visible so offsetHeight is correct
+      const rect = btn.getBoundingClientRect();
+      const popW = Math.max(pop.offsetWidth, 220);
+      const popH = pop.offsetHeight;
+      // Open upward: bottom of popover aligns just above the button
+      let left = rect.left;
+      let top = rect.top - popH - 6;
+      if (left + popW > window.innerWidth - 8) left = window.innerWidth - popW - 8;
+      if (top < 8) top = rect.bottom + 6; // fall back to below if no room above
+      pop.style.left = `${Math.max(8, left)}px`;
+      pop.style.top = `${top}px`;
+    }
+
+    function hideModelPopover() {
+      $('model-popover').classList.remove('visible');
+      modelPopoverOpen = false;
+    }
+
+    $('model-switcher-btn').addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (modelPopoverOpen) hideModelPopover();
+      else showModelPopover();
+    });
+
+    document.addEventListener('mousedown', (event) => {
+      if (modelPopoverOpen && !$('model-popover').contains(event.target) && event.target !== $('model-switcher-btn')) {
+        hideModelPopover();
+      }
+    });
+
+    // Keep the pill up to date whenever the model <select> changes
+    $('model').addEventListener('change', updateModelPill);
+
+    // ── message() with action buttons ─────────────────────────────────────────
+    function message(role, text, fileEdits = [], approvalRequests = [], model = null) {
       $('empty')?.remove();
       const article = document.createElement('article');
       article.className = `message ${role}`;
@@ -1801,7 +2475,131 @@
       const content = document.createElement('div');
       content.className = 'content';
       setMessageContent(content, text, role === 'assistant');
+      
+      // Add model indicator for assistant messages - use provided model or current selection
+      if (role === 'assistant') {
+        const modelIndicator = document.createElement('div');
+        modelIndicator.className = 'model-indicator';
+        modelIndicator.textContent = (model ?? $('model').value) || '—';
+        content.append(modelIndicator);
+      }
+      
       article.append(heading, content);
+
+      // ── Action buttons (checkpoint + edit for user, checkpoint for assistant) ──
+      const actionsBar = document.createElement('div');
+      actionsBar.className = 'msg-actions';
+
+      // Checkpoint button — both roles
+      const checkpointBtn = document.createElement('button');
+      checkpointBtn.type = 'button';
+      checkpointBtn.className = 'msg-action-btn';
+      checkpointBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1.5A5.5 5.5 0 1 1 8 13.5 5.5 5.5 0 0 1 8 2.5zM8 4a.75.75 0 0 1 .75.75v3.5l2 1.15a.75.75 0 0 1-.75 1.3l-2.25-1.3A.75.75 0 0 1 7.25 8.5v-3.75A.75.75 0 0 1 8 4z"/></svg> Checkpoint`;
+      checkpointBtn.title = 'Save a checkpoint here — you can restore to this point later';
+      checkpointBtn.addEventListener('click', () => {
+        if (busy || approvalBusy) return;
+        // Find the history index corresponding to this message
+        // Each rendered article corresponds to history items in order
+        const idx = historyIndexForArticle(article);
+        if (idx < 0 || idx >= history.length) {
+          status('Cannot checkpoint this message.', true);
+          return;
+        }
+        const label = (history[idx].display || history[idx].content || '').slice(0, 60) || `Turn ${idx + 1}`;
+        saveCheckpoint(idx, label);
+      });
+
+      actionsBar.append(checkpointBtn);
+
+      // Edit button — only user messages
+      if (role === 'user') {
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'msg-action-btn';
+        editBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25a1.75 1.75 0 0 1 .445-.757l8.61-8.61zm1.414 1.06a.25.25 0 0 0-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354l-1.086-1.086zM11.189 6.25 9.75 4.81 4.198 10.363a.25.25 0 0 0-.064.108l-.618 2.162 2.162-.617a.25.25 0 0 0 .108-.064L11.19 6.25z"/></svg> Edit`;
+        editBtn.title = 'Edit this prompt and resend from here';
+
+        // Inline edit widget
+        const editWrap = document.createElement('div');
+        editWrap.className = 'edit-prompt-wrap';
+
+        const editTa = document.createElement('textarea');
+        editTa.className = 'edit-prompt-ta';
+        editTa.rows = 3;
+
+        const editActions = document.createElement('div');
+        editActions.className = 'edit-prompt-actions';
+
+        const resendBtn = document.createElement('button');
+        resendBtn.type = 'button';
+        resendBtn.className = 'edit-resend-btn';
+        resendBtn.textContent = 'Resend ↑';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'edit-cancel-btn';
+        cancelBtn.textContent = 'Cancel';
+
+        editActions.append(resendBtn, cancelBtn);
+        editWrap.append(editTa, editActions);
+
+        editBtn.addEventListener('click', () => {
+          if (busy || approvalBusy) return;
+          const idx = historyIndexForArticle(article);
+          if (idx < 0 || idx >= history.length) { status('Cannot edit this message.', true); return; }
+          // Fill editor with current prompt display text
+          editTa.value = history[idx].display ?? history[idx].content ?? '';
+          editWrap.classList.add('open');
+          editTa.focus();
+          editTa.selectionStart = editTa.selectionEnd = editTa.value.length;
+        });
+
+        cancelBtn.addEventListener('click', () => {
+          editWrap.classList.remove('open');
+        });
+
+        editTa.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            resendBtn.click();
+          }
+          if (event.key === 'Escape') {
+            cancelBtn.click();
+          }
+        });
+
+        resendBtn.addEventListener('click', async () => {
+          if (busy || approvalBusy || readingFiles || !connected) return;
+          const newPrompt = editTa.value.trim();
+          if (!newPrompt) { status('Prompt cannot be empty.', true); return; }
+          const idx = historyIndexForArticle(article);
+          if (idx < 0 || idx >= history.length) { status('Cannot resend: message not found.', true); return; }
+
+          // Auto-checkpoint the current state before truncating (silent — no status message)
+          if (!checkpoint) {
+            const currentLabel = (history[history.length - 1]?.display || history[history.length - 1]?.content || '').slice(0, 60) || 'before edit';
+            saveCheckpoint(history.length - 1, currentLabel, true);
+          }
+
+          // Truncate history to just before this user message
+          history.splice(idx);
+          // Remove all rendered articles from idx onward
+          const allArticles = Array.from($('messages').querySelectorAll('article.message'));
+          for (let i = idx; i < allArticles.length; i++) allArticles[i].remove();
+
+          editWrap.classList.remove('open');
+
+          // Now send the new prompt — put it in the prompt box and submit
+          $('prompt').value = newPrompt;
+          $('composer').requestSubmit();
+        });
+
+        actionsBar.append(editBtn);
+        article.append(actionsBar, editWrap);
+      } else {
+        article.append(actionsBar);
+      }
+
       if (Array.isArray(fileEdits) && fileEdits.length) {
         for (const edit of fileEdits) showFileEdit(edit);
       }
@@ -1848,11 +2646,17 @@
       const decoder = new TextDecoder();
       let buffer = '';
       let finished = false;
+      let model = null;
       function line(text) {
         if (!text.trim()) return;
         const chunk = JSON.parse(text);
         if (chunk.error) throw new Error(chunk.error);
-        consume(chunk);
+        // Extract model name from the first complete message chunk
+        if (chunk.message && typeof chunk.message === 'object' && !Array.isArray(chunk.message)) {
+          model = chunk.model || $('model').value;
+        }
+        const chunkWithModel = { ...chunk, model };
+        consume(chunkWithModel);
       }
       try {
         while (true) {
@@ -1876,8 +2680,22 @@
       }
     }
 
+    function smallestInstalledModel(models) {
+      return models.reduce((smallest, model) => {
+        if (!Number.isFinite(model.size) || model.size <= 0) return smallest;
+        return !smallest || model.size < smallest.size ? model : smallest;
+      }, null);
+    }
+
     function chatErrorMessage(error) {
       const detail = error.message || 'An unexpected error occurred.';
+      if (/\b(out of memory|insufficient memory)\b|kIOGPUCommandBufferCallbackErrorOutOfMemory/i.test(detail)) {
+        const smaller = smallestInstalledModel(installedModels);
+        const suggestion = smaller && smaller.name !== $('model').value
+          ? ` Select ${smaller.name}, the smallest installed model, using the model selector.`
+          : ' Select a smaller installed model using the model selector if one is available.';
+        return `The model ran out of GPU memory.${suggestion} Close other memory-heavy apps and retry; for large inputs, send fewer attachments or shorter excerpts. If it still fails, this model may not fit in available GPU memory.`;
+      }
       if (/^Web search could not be completed\b/i.test(detail)) {
         if (/503|service unavailable/i.test(detail)) {
           return 'Web search is temporarily unavailable (503). The search service or network proxy could not be reached. Please try again later; if this continues, check your internet, VPN, or proxy connection.';
@@ -1893,6 +2711,7 @@
     async function connect() {
       const attempt = ++connectionAttempt;
       connected = false;
+      installedModels = [];
       controls();
       status('Connecting to Ollama...');
       try {
@@ -1904,15 +2723,19 @@
           throw new Error('Ollama returned an invalid model list.');
         }
         if (attempt !== connectionAttempt) return;
+        installedModels = data.models;
         const selected = $('model').value;
         $('model').replaceChildren();
         for (const item of data.models) {
           $('model').add(new Option(item.name, item.name));
         }
         if (!data.models.length) throw new Error('No models installed in this server. Run ollama pull qwen3.5:9b.');
-        if (data.models.some((item) => item.name === selected)) $('model').value = selected;
+        $('model').value = data.models.some((item) => item.name === selected)
+          ? selected
+          : (smallestInstalledModel(data.models)?.name ?? data.models[0].name);
+        updateModelPill();
         connected = true;
-        status('Connected. Ready for Qwen via Ollama and the code assistant.');
+        status(`Connected. Ready with ${$('model').value} via Ollama and the code assistant.`);
       } catch (error) {
         if (attempt !== connectionAttempt) return;
         status(`${error.message} Check that Ollama is running and permits this page's origin.`, true);
@@ -2026,7 +2849,15 @@
         names.textContent = `Attached: ${sentFiles.map(file => file.name).join(', ')}`;
         user.article.append(names);
       }
-      const reply = message('assistant', 'Waiting for assistant...');
+      let chatModel = $(model) ? $(model).value : null;
+      // Only use history model if it differs from current selection
+      if (history.length > 0 && chatModel !== null && chatModel !== "" && chatModel !== "—")
+        for (const item of history) {
+          if (item.model && item.model !== chatModel)
+            chatModel = item.model
+            break
+        }
+      const reply = message('assistant', 'Waiting for assistant...', [], [], chatModel);
       $('prompt').value = '';
       status(generatingStatus);
       let answer = '';
@@ -2071,6 +2902,15 @@
               reply.article.insertBefore(details, reply.content);
             }
             setMessageContent(thinkingContent, thinking);
+            
+            // Add/update model indicator for thinking content if not already present
+            if (chatModel && !thinkingContent.querySelector('.model-indicator')) {
+              const modelIndicator = document.createElement('div');
+              modelIndicator.className = 'model-indicator';
+              modelIndicator.textContent = chatModel;
+              thinkingContent.append(modelIndicator);
+            }
+            
             if (chunk.message.thinking.includes('Calling tool: web_search')) {
               status('Searching the web with DuckDuckGo...');
             } else if (chunk.message.thinking.includes('Calling tool: fetch_web_page')) {
@@ -2090,17 +2930,31 @@
             answer += chunk.message.content;
             if (answer) {
               setMessageContent(reply.content, answer, true);
+              
+              // Add model indicator for the assistant response content
+              if (chatModel && !reply.content.querySelector('.model-indicator')) {
+                const modelIndicator = document.createElement('div');
+                modelIndicator.className = 'model-indicator';
+                modelIndicator.textContent = chatModel;
+                reply.content.append(modelIndicator);
+              }
+              
               status(generatingStatus);
             }
             if (follow) $('messages').scrollTop = $('messages').scrollHeight;
           }
+          // Track the model used for this response
+          if (chunk.model && !chatModel) chatModel = chunk.model;
           if (chunk.done === true) completed = true;
         });
         if (!completed) throw new Error('Ollama stream ended before the reply completed.');
         if (!answer.trim() && !fileEdits.length && !approvalRequests.length) throw new Error('The model returned no answer.');
         if (!answer.trim() && fileEdits.length) answer = 'Files updated successfully.';
         if (!answer.trim() && approvalRequests.length) answer = 'Approval required before changing files.';
-        history.push(userMessage, { role: 'assistant', content: answer, fileEdits, approvalRequests });
+        const assistantMessage = { role: 'assistant', content: answer, fileEdits, approvalRequests, model: chatModel };
+        history.push(userMessage, assistantMessage);
+        historyItemByArticle.set(user.article, userMessage);
+        historyItemByArticle.set(reply.article, assistantMessage);
         attachments.length = 0;
         renderAttachments();
         try {
@@ -2147,7 +3001,24 @@
       }
     });
     const chatHistoryReady = loadChats();
-    connect();
+    const connectionReady = connect();
+
+    // If the page was opened in a new tab with ?chatId=..., auto-load that chat.
+    // Must run AFTER chatHistoryReady is declared above.
+    (function autoLoadChatFromUrl() {
+      const params = new URLSearchParams(location.search);
+      const chatId = params.get('chatId');
+      if (!chatId) return;
+      // Remove the query string from the URL bar without a page reload
+      window.history.replaceState(null, '', location.pathname);
+      // Wait for both history and the installed model list before choosing a model.
+      Promise.all([chatHistoryReady, connectionReady]).then(() => {
+        const chat = savedChats.find(c => c.id === chatId);
+        if (!chat) { status(`Chat "${chatId}" not found.`, true); return; }
+        reopenChat(chat);
+      });
+    })();
+
   </script>
 </body>
 </html>
