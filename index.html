@@ -1688,7 +1688,7 @@
 
     function appendInlineFormatted(target, text) {
       // Pattern order matters: backtick first (no nested parsing), then links, then bold/italic/strikethrough/bare-url
-      const pattern = /(`[^`\n]+`|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|~~[^~\n]+~~|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*|_[^_\n]+_|https?:\/\/[^\s<>"')\]]+)/g;
+      const pattern = /(`[^`\n]+`|\[([^\]]+)\][ \t]*\((https?:\/\/[^\s)]+)\)|~~[^~\n]+~~|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*|_[^_\n]+_|https?:\/\/[^\s<>"')\]]+)/g;
       let lastIndex = 0;
       for (const match of text.matchAll(pattern)) {
         const [token] = match;
@@ -1711,12 +1711,12 @@
         } else if ((token.startsWith('**') && token.endsWith('**')) || (token.startsWith('__') && token.endsWith('__'))) {
           // Bold
           const strong = document.createElement('strong');
-          strong.textContent = token.slice(2, -2);
+          appendInlineFormatted(strong, token.slice(2, -2));
           target.append(strong);
         } else if ((token.startsWith('*') && token.endsWith('*')) || (token.startsWith('_') && token.endsWith('_'))) {
           // Italic
           const em = document.createElement('em');
-          em.textContent = token.slice(1, -1);
+          appendInlineFormatted(em, token.slice(1, -1));
           target.append(em);
         } else if (/^https?:\/\//.test(token)) {
           // Bare URL auto-link — strip trailing punctuation that's likely not part of the URL

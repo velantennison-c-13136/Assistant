@@ -38,7 +38,6 @@ const listChats = database.prepare(`
   ORDER BY updated_at DESC
 `);
 const maxRequestBytes = 20 * 1024 * 1024;
-const langGraphTimeoutMs = 240000;
 let ollamaProcess;
 let shuttingDown = false;
 let shutdownPromise;
@@ -187,6 +186,19 @@ function sanitizePythonStderr(stderr) {
     .trim();
 }
 
+function chatTimeouts(mode, messages = []) {
+  const hasLocalPath = messages.some(message => message.role === 'user' &&
+    /(?:^|[\s`"'])(?:\/|~\/|\.\.?\/)/.test(message.content.split('\n\n---ATTACHED FILES START---\n')[0]));
+  const defaultTotalMs = mode === 'attachment' && !hasLocalPath ? 240000 : 900000;
+  const configuredTotalMs = Number(process.env.ASSISTANT_CHAT_TIMEOUT_MS);
+  const configuredIdleMs = Number(process.env.ASSISTANT_CHAT_IDLE_TIMEOUT_MS);
+  const totalMs = Number.isSafeInteger(configuredTotalMs) && configuredTotalMs >= 1000
+    ? configuredTotalMs : defaultTotalMs;
+  const idleMs = Number.isSafeInteger(configuredIdleMs) && configuredIdleMs >= 1000
+    ? configuredIdleMs : 240000;
+  return { totalMs, idleMs: Math.min(idleMs, totalMs) };
+}
+
 async function streamLangGraphChat({ model, endpoint, messages, mode, signal, response }) {
   return await new Promise((resolve, reject) => {
     const child = spawn(pythonBin, [langGraphScript], {
@@ -196,16 +208,32 @@ async function streamLangGraphChat({ model, endpoint, messages, mode, signal, re
     let stderr = '';
     let settled = false;
     let errorSent = false;
-    const timeout = setTimeout(() => {
+    let idleTimeout;
+    const { totalMs, idleMs } = chatTimeouts(mode, messages);
+    const totalTimeout = setTimeout(() => {
+      terminate(`Code assistant exceeded its ${totalMs / 1000}-second request limit. Set ASSISTANT_CHAT_TIMEOUT_MS to allow longer tasks.`);
+    }, totalMs);
+
+    function terminate(message) {
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
-      emitError('LangGraph timed out after 240 seconds. Try a smaller excerpt, fewer files, or a more specific request.');
-      finish(new HttpError(504, 'LangGraph timed out after 240 seconds. Try a smaller excerpt, fewer files, or a more specific request.'));
-    }, langGraphTimeoutMs);
+      emitError(message);
+      finish(new HttpError(504, message));
+    }
+
+    function resetIdleTimeout() {
+      clearTimeout(idleTimeout);
+      idleTimeout = setTimeout(() => {
+        terminate(`Code assistant produced no output for ${idleMs / 1000} seconds. Check the Ollama server or set ASSISTANT_CHAT_IDLE_TIMEOUT_MS for slower models.`);
+      }, idleMs);
+    }
+
+    resetIdleTimeout();
 
     function finish(error, value) {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
+      clearTimeout(totalTimeout);
+      clearTimeout(idleTimeout);
       signal?.removeEventListener('abort', abortChild);
       if (error) reject(error);
       else resolve(value ?? JSON.stringify({ message: {}, model }));
@@ -227,6 +255,8 @@ async function streamLangGraphChat({ model, endpoint, messages, mode, signal, re
       finish(new HttpError(500, `Cannot start LangGraph assistant: ${error.message}`));
     });
     child.stdout.on('data', (chunk) => {
+      if (settled) return;
+      resetIdleTimeout();
       if (!response.destroyed && !response.writableEnded) response.write(chunk);
     });
     child.stderr.on('data', (chunk) => {
