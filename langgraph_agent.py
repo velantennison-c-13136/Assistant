@@ -44,6 +44,12 @@ from langgraph.graph import END, START, StateGraph, add_messages
 # Default working directory if paths are relative
 DEFAULT_WORKING_DIR = Path(os.environ.get("ASSISTANT_WORKSPACE", Path(__file__).resolve().parent.parent)).resolve()
 IMPROVED_PROMPT_MODEL = "qwen3.5:9b"
+PROMPT_REWRITE_LEAK_MARKERS = (
+    "rewrite the user's request as a clear, actionable prompt",
+    "keep simple requests simple",
+    "return only the improved prompt, without a label or explanation",
+    "do not answer or carry out the request",
+)
 UNSUPPORTED_STRUCTURED_OUTPUT: set[tuple[str, str]] = set()
 ATTACHMENT_SEPARATOR = "\n\n---ATTACHED FILES START---\n"
 TOOL_CONTEXT: dict[str, Any] = {
@@ -836,6 +842,20 @@ def is_confirmation_message(text: str) -> bool:
     )
 
 
+def is_prompt_rewrite_instruction_echo(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text).casefold()
+    return sum(marker in normalized for marker in PROMPT_REWRITE_LEAK_MARKERS) >= 2
+
+
+def is_question_prompt(text: str) -> bool:
+    normalized = text.strip()
+    return normalized.endswith("?") or bool(re.match(
+        r"(?:(?:hi|hello|hey)\b[\s,!.]*)?(?:what|who|whom|whose|which|when|where|why|how)\b",
+        normalized,
+        re.I,
+    ))
+
+
 def effective_user_request(messages: list[BaseMessage]) -> str:
     latest = latest_user_request(messages)
     if not is_confirmation_message(latest):
@@ -1213,7 +1233,8 @@ def refine_latest_user_request(
             SystemMessage(content=(
                 runtime_date_context() +
                 "Rewrite the user's request as a clear, actionable prompt while preserving the intended outcome. "
-                "Keep simple requests simple. Do not answer or carry out the request. Do not invent project facts. "
+                "Keep simple requests simple. Do not answer or carry out the request. Preserve questions as "
+                "questions; never turn a question into its answer. Do not invent project facts. "
                 "Use only the current user's prompt and, when explicitly referenced, the immediately preceding "
                 "user prompt as context. Attachment names may be provided, but attachment contents and assistant "
                 "replies are not rewrite context. If the user refers to an attached file, improve the request as "
@@ -1237,6 +1258,16 @@ def refine_latest_user_request(
     )
     if not refined_request:
         raise ValueError("The assistant returned an empty improved prompt.")
+    if is_prompt_rewrite_instruction_echo(refined_request):
+        emit({"message": {"thinking": (
+            "Prompt improvement returned its own instructions; using the original request instead.\n"
+        )}})
+        refined_request = original_request.strip()
+    elif is_question_prompt(original_request) and not is_question_prompt(refined_request):
+        emit({"message": {"thinking": (
+            "Prompt improvement answered a question instead of rewriting it; using the original question instead.\n"
+        )}})
+        refined_request = original_request.strip()
 
     missing_paths = [path for path in requested_local_paths(messages) if path not in refined_request]
     if missing_paths:

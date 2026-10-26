@@ -50,9 +50,11 @@ that immediately preceding user prompt is also supplied as context; assistant
 replies and attachment contents are not sent to the rewrite step. Attached file
 names are provided so requests to print or format an attached file do not ask
 for its contents again. Short approval or confirmation follow-ups skip rewriting
-and remain linked to the preceding user request. The selected answering model
-then receives the improved prompt along with the unchanged attachments and
-conversation context.
+and remain linked to the preceding user request. If the rewrite model echoes
+its own instructions or answers a question instead of rewriting it, the app
+keeps the original request and reports that fallback. The selected answering
+model then receives the improved prompt along with the unchanged attachments
+and conversation context.
 
 In Agent tools mode, current-information questions and explicit web-search
 requests automatically search the web and fetch source pages before answering.

@@ -459,6 +459,48 @@ const server = http.createServer((request, response) => {
     });
     return;
   }
+  // Serve static assets (CSS, JS)
+  if (url.pathname.startsWith('/css/') || url.pathname.startsWith('/js/')) {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      response.writeHead(405, { Allow: 'GET, HEAD' });
+      response.end('Method not allowed');
+      return;
+    }
+    const filePath = url.pathname === '/css/styles.css' 
+      ? path.join(__dirname, 'css', 'styles.css')
+      : url.pathname === '/js/app.js' 
+        ? path.join(__dirname, 'js', 'app.js')
+        : null;
+    
+    if (!filePath) {
+      sendJson(response, 404, { error: 'Not found' });
+      return;
+    }
+    
+    fs.readFile(filePath, (error, content) => {
+      if (error) {
+        console.error(`Could not read static file: ${error.message}`);
+        sendJson(response, 500, { error: 'Could not load the file.' });
+        return;
+      }
+      
+      let contentType = 'application/octet-stream';
+      if (filePath.endsWith('.css')) {
+        contentType = 'text/css; charset=utf-8';
+      } else if (filePath.endsWith('.js')) {
+        contentType = 'application/javascript; charset=utf-8';
+      }
+      
+      response.writeHead(200, {
+        'Content-Type': contentType,
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff'
+      });
+      response.end(request.method === 'HEAD' ? undefined : content);
+    });
+    return;
+  }
+  
   if (url.pathname === '/' || url.pathname === '/index.html') {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       response.writeHead(405, { Allow: 'GET, HEAD' });
