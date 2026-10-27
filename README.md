@@ -57,7 +57,12 @@ model then receives the improved prompt along with the unchanged attachments
 and conversation context.
 
 In Agent tools mode, current-information questions and explicit web-search
-requests automatically search the web and fetch source pages before answering.
+requests are classified semantically, including requests in other languages
+or transliteration, and search the web and fetch source pages before answering.
+Facts that can change over time, such as office holders, are verified even when
+the question does not say "current" or "latest"; this verification is enforced
+before the answer controller can respond. If classification is unclear, the
+app searches the original request rather than skipping verification.
 The answering model is instructed to cite checked source URLs; the app does not
 append a separate "Sources checked" footer. If searching or
 reading sources fails, the request reports an error rather than answering from
