@@ -480,7 +480,12 @@ document.addEventListener('DOMContentLoaded', () => {
           target.append(code);
         } else if (token.startsWith('[') && match[2] && match[3]) {
           // Markdown link [label](url)
-          target.append(makeLink(match[3], match[2]));
+          // If the label itself is a percent-encoded URL, decode it for readability
+          let linkLabel = match[2];
+          if (/^https?:\/\//.test(linkLabel) && linkLabel.includes('%')) {
+            try { linkLabel = decodeURIComponent(linkLabel); } catch { /* keep raw */ }
+          }
+          target.append(makeLink(match[3], linkLabel));
         } else if (token.startsWith('~~') && token.endsWith('~~')) {
           // Strikethrough ~~text~~
           const del = document.createElement('del');
@@ -500,7 +505,10 @@ document.addEventListener('DOMContentLoaded', () => {
           // Bare URL auto-link — strip trailing punctuation that's likely not part of the URL
           const url = token.replace(/[.,;:!?'")\]]+$/, '');
           const trailing = token.slice(url.length);
-          target.append(makeLink(url, url));
+          // Decode percent-encoded characters for a readable label, fall back to raw URL
+          let label;
+          try { label = decodeURIComponent(url); } catch { label = url; }
+          target.append(makeLink(url, label));
           if (trailing) target.append(document.createTextNode(trailing));
         }
         lastIndex = index + token.length;
