@@ -43,46 +43,19 @@
       </div>
       </details>
     </header>
-    <section id="messages" aria-label="Conversation">
-      <div id="empty">
-        <h2>How can I help you today?</h2>
-        <p>Think through an idea, explore your code, or make sense of your logs.</p>
-        <div class="suggestions" aria-label="Suggested prompts">
-          <button type="button" data-prompt="Help me investigate an error in my application logs.">Investigate an error <span>Find the cause in your logs</span></button>
-          <button type="button" data-prompt="Help me review and explain my code.">Understand code <span>Explore how something works</span></button>
-          <button type="button" data-prompt="Help me plan an implementation step by step.">Plan a solution <span>Turn an idea into next steps</span></button>
-        </div>
-      </div>
-    </section>
-    <section id="file-changes" aria-label="Changed files" hidden>
-      <div class="file-changes-heading">Changed files</div>
-      <div id="file-change-list"></div>
-    </section>
-    <form id="composer">
-      <label for="prompt" class="sr-only">Your message</label>
-      <textarea id="prompt" placeholder="Message your Personal assistant..." rows="2"></textarea>
-      <div id="attachments" aria-label="Attached files"></div>
-      <div class="actions">
-        <label for="files" class="attach-label">+ Attach files
-          <input id="files" type="file" multiple aria-describedby="file-help">
-        </label>
-        <!-- Model pill + switcher inside composer -->
-        <button type="button" id="model-switcher-btn" class="model-switcher-btn" title="Change model" disabled>
-          <span class="model-pill-dot" id="model-pill-dot"></span>
-          <span id="active-model-name">—</span>
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="opacity:.6"><path d="M4.427 7.427l3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 7H4.604a.25.25 0 0 0-.177.427z"/></svg>
-        </button>
-        <!-- Model popover (opens upward) -->
-        <div id="model-popover" role="listbox" aria-label="Select model">
-          <div id="model-popover-title">Switch model</div>
-          <div id="model-popover-list"></div>
-        </div>
-        <span class="composer-limit">Text, logs, code &middot; 1 MB</span>
-        <button id="send" type="submit" disabled>Send &uarr;</button>
-        <button id="stop" type="button" disabled>Stop</button>
-      </div>
-      <div id="file-help" class="sr-only">UTF-8 text, logs, or source code up to 1 MB total. Large files may exceed the model context. Files are sent only to local Ollama.</div>
-    </form>
+
+    <!-- Tab bar for simultaneous chats -->
+    <div id="tab-bar" role="tablist" aria-label="Chat tabs">
+      <div id="tab-list"></div>
+      <button id="new-tab-btn" type="button" title="Open a new simultaneous chat tab" aria-label="New chat tab">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2Z"/></svg>
+        New tab
+      </button>
+    </div>
+
+    <!-- Tab panes container — each tab's workspace lives here -->
+    <div id="tab-panes"></div>
+
     <div class="footer">
       <div id="status" role="status" aria-live="polite">Connecting to Ollama...</div>
       <span class="hint">AI can make mistakes. Verify important answers.</span>

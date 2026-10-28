@@ -62,7 +62,27 @@ or transliteration, and search the web and fetch source pages before answering.
 Facts that can change over time, such as office holders, are verified even when
 the question does not say "current" or "latest"; this verification is enforced
 before the answer controller can respond. If classification is unclear, the
-app searches the original request rather than skipping verification.
+app retries the decision; a repeatedly invalid decision reports an error rather
+than silently disabling verification. The original user question is retained
+alongside translated or improved wording and takes priority when they differ.
+The semantic decision produces a normalized search query rather than searching
+raw transliteration or an inaccurate translation.
+Clarification is topic-independent, including for local file tasks. The app
+asks one concise question only when essential information is missing,
+requirements conflict, or materially different interpretations prevent a
+useful response without a consequential guess. Clear requests and optional
+preferences do not trigger confirmation. The decision uses a generic status,
+reason, and question, not domain-specific categories. Recent conversation can
+resolve follow-up references, but the latest explicit request takes priority
+over older assistant suggestions. Translation errors and factual uncertainty
+alone do not require clarification; current facts are researched instead.
+Researched answers must cite a fetched page and pass a source-grounding review
+using `qwen3.5:9b` before being displayed. Unfetched citation URLs are rejected.
+Citation parsing preserves balanced parentheses in URLs, including Markdown
+links. The answer model receives an explicit list of fetched URLs to copy;
+revision feedback identifies unfetched links and repeats the allowed list.
+Unsupported drafts are revised once; if the revised
+answer still fails the check, the request reports an error instead of showing it.
 The answering model is instructed to cite checked source URLs; the app does not
 append a separate "Sources checked" footer. If searching or
 reading sources fails, the request reports an error rather than answering from
