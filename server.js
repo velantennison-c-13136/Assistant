@@ -8,6 +8,9 @@ const { spawn } = require('node:child_process');
 const { setTimeout: delay } = require('node:timers/promises');
 const { DatabaseSync } = require('node:sqlite');
 
+const envFile = path.join(__dirname, '.env');
+if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
+
 const ollamaUrl = 'http://127.0.0.1:11434';
 const langGraphScript = path.join(__dirname, 'langgraph_agent.py');
 const pythonBin = process.env.PYTHON_BIN || 'python3';
@@ -78,6 +81,43 @@ function normalizeOllamaOrigin(input) {
     throw new HttpError(400, 'Use a local Ollama URL such as http://127.0.0.1:11434.');
   }
   return url.origin;
+}
+
+function platformAiModels() {
+  const known = {
+    in: 'https://platformai.zoho.in',
+    csez: 'https://platformai.csez.zohocorpin.com'
+  };
+  const listed = (process.env.PLATFORMAI_HOSTS || '').split(',').map(key => key.trim().toLowerCase()).filter(Boolean);
+  const configured = new Set(Object.keys(process.env)
+    .map(key => /^PLATFORMAI_([A-Z0-9_]+)_(?:BASE_URL|PORTAL_ID)$/.exec(key)?.[1]?.toLowerCase())
+    .filter(Boolean));
+  const keys = listed.length
+    ? listed
+    : ['in', ...[...configured].filter(key => key !== 'in').sort()];
+  const models = [
+    'zlabs-qwen35-122B-v1',
+    'zlabs-qwen35-122B-v1-thinking-MOE'
+  ];
+  const modelsForHosts = [];
+  for (const key of keys) {
+    const upper = key.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+    const first = key === keys[0];
+    const baseUrl = process.env[`PLATFORMAI_${upper}_BASE_URL`] ||
+      (first ? process.env.PLATFORMAI_BASE_URL : '') || known[key] || '';
+    const portalId = process.env[`PLATFORMAI_${upper}_PORTAL_ID`] ||
+      (first ? process.env.PLATFORMAI_PORTAL_ID : '');
+    if (!baseUrl || !portalId) continue;
+    const extras = process.env[`PLATFORMAI_${upper}_EXTRA_MODELS`] || '';
+    const hostModels = [...models, ...extras.split(',').map(name => name.trim()).filter(Boolean)];
+    for (const model of new Set(hostModels)) {
+      modelsForHosts.push({
+        id: `platformai:${model}@${key}`,
+        name: `PlatformAI · ${model}@${key}`
+      });
+    }
+  }
+  return modelsForHosts;
 }
 
 function sendJson(response, status, data) {
@@ -325,6 +365,15 @@ async function proxyOllama(request, response, target, method, options = {}) {
 }
 
 async function handleApi(request, response, url) {
+  if (url.pathname === '/api/platformai/models') {
+    if (request.method !== 'GET') {
+      response.writeHead(405, { Allow: 'GET' });
+      response.end('Method not allowed');
+      return;
+    }
+    sendJson(response, 200, { models: platformAiModels() });
+    return;
+  }
   if (url.pathname === '/api/ollama/tags') {
     const endpoint = normalizeOllamaOrigin(url.searchParams.get('endpoint') || ollamaUrl);
     await proxyOllama(request, response, '/api/tags', 'GET', { endpoint });
@@ -347,10 +396,12 @@ async function handleApi(request, response, url) {
       return;
     }
     const body = await readJson(request);
-    const endpoint = normalizeOllamaOrigin(body?.endpoint);
     if (typeof body?.model !== 'string' || !body.model.trim()) {
       throw new HttpError(400, 'Model is required.');
     }
+    const endpoint = body.model.startsWith('platformai:')
+      ? ollamaUrl
+      : normalizeOllamaOrigin(body?.endpoint);
     if (!Array.isArray(body.messages) || !body.messages.length || !body.messages.every(validPromptMessage)) {
       throw new HttpError(400, 'Chat messages are invalid.');
     }

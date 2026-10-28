@@ -13,6 +13,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── Shared state ────────────────────────────────────────────────────────────
   let connected = false;
   let installedModels = [];
+  let platformAiModels = [];
+  let platformAiError = '';
+  let ollamaError = '';
+  let selectedProvider = localStorage.getItem('assistant-provider-v1') === 'platformai' ? 'platformai' : 'ollama';
   let connectionAttempt = 0;
   let savedChats = [];
   let storageLoaded = false;
@@ -162,7 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
       title.textContent = chat.title;
       const meta = document.createElement('span');
       meta.className = 'chat-meta';
-      meta.textContent = `${chat.model} | ${new Date(chat.updatedAt).toLocaleString()}`;
+      meta.textContent = `${modelLabel(chat.model)} | ${new Date(chat.updatedAt).toLocaleString()}`;
       open.append(title, meta);
       // Mark active in the active pane
       const activePane = getActivePane();
@@ -185,12 +189,46 @@ document.addEventListener('DOMContentLoaded', () => {
     const busy = pane?.busy || false;
     const approvalBusy = pane?.approvalBusy || false;
     const readingFiles = pane?.readingFiles || false;
-    for (const id of ['endpoint', 'model', 'attachment-mode', 'connect', 'files']) {
+    for (const id of ['provider', 'endpoint', 'model', 'attachment-mode', 'connect', 'files']) {
       const el = $(id);
       if (el) el.disabled = busy || approvalBusy || readingFiles;
     }
-    $('update').disabled = busy || readingFiles || !connected || !$('model').value;
+    $('update').disabled = busy || readingFiles || !connected || !$('model').value ||
+      $('model').value.startsWith('platformai:');
     $('clear').disabled = busy || approvalBusy || readingFiles;
+  }
+
+  function modelLabel(model) {
+    return Array.from($('model').options).find(option => option.value === model)?.textContent || model;
+  }
+
+  function applyProviderModels(preferredModel = $('model').value) {
+    const models = selectedProvider === 'platformai'
+      ? platformAiModels
+      : installedModels.map(item => ({ id: item.name, name: item.name }));
+    $('model').replaceChildren();
+    for (const item of models) $('model').add(new Option(item.name, item.id));
+    $('model').value = models.some(item => item.id === preferredModel)
+      ? preferredModel
+      : (selectedProvider === 'ollama'
+        ? (smallestInstalledModel(installedModels)?.name ?? models[0]?.id ?? '')
+        : (models[0]?.id || ''));
+    $('ollama-endpoint-setting').hidden = selectedProvider !== 'ollama';
+    connected = models.length > 0;
+    updateModelPill();
+    for (const tab of tabs) tab.pane.refreshModelPill();
+    if (connected) {
+      status(`Ready with ${modelLabel($('model').value)} via ${selectedProvider === 'platformai' ? 'PlatformAI' : 'Ollama'}.`);
+    } else {
+      status(
+        selectedProvider === 'platformai'
+          ? (platformAiError || 'No PlatformAI models are configured. Check the server .env gateway and portal settings.')
+          : (ollamaError || 'No Ollama models found. Start Ollama or switch the provider to PlatformAI.'),
+        true
+      );
+    }
+    syncGlobalControls();
+    for (const tab of tabs) tab.pane.onActivated();
   }
 
   // ── Model pill (shared) ──────────────────────────────────────────────────────
@@ -599,6 +637,10 @@ document.addEventListener('DOMContentLoaded', () => {
     return url.origin;
   }
 
+  function endpointForModel(model) {
+    return model.startsWith('platformai:') ? 'http://127.0.0.1:11434' : baseUrl();
+  }
+
   function smallestInstalledModel(models) {
     return models.reduce((smallest, model) => {
       if (!Number.isFinite(model.size) || model.size <= 0) return smallest;
@@ -765,7 +807,7 @@ document.addEventListener('DOMContentLoaded', () => {
     promptEl.addEventListener('input', controls);
 
     function updatePaneModelPill() {
-      const modelName = $('model').value || '—';
+      const modelName = $('model').value ? modelLabel($('model').value) : '—';
       activeModelNameEl.textContent = modelName;
     }
 
@@ -776,7 +818,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.type = 'button';
         btn.className = 'model-option-btn';
         btn.dataset.model = option.value;
-        btn.textContent = option.value;
+        btn.textContent = option.textContent;
         if (option.value === $('model').value) btn.classList.add('active');
         btn.addEventListener('click', () => {
           if (busy || approvalBusy || readingFiles) return;
@@ -785,7 +827,7 @@ document.addEventListener('DOMContentLoaded', () => {
           updateModelPill();
           for (const t of tabs) t.pane.refreshModelPill();
           hidePaneModelPopover();
-          status(`Model switched to ${option.value}.`);
+          status(`Model switched to ${option.textContent}.`);
         });
         modelPopoverListEl.append(btn);
       }
@@ -1103,7 +1145,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (role === 'assistant') {
         const modelIndicator = document.createElement('div');
         modelIndicator.className = 'model-indicator';
-        modelIndicator.textContent = (model ?? $('model').value) || '—';
+        const indicatorModel = (model ?? $('model').value) || '';
+        modelIndicator.textContent = indicatorModel ? modelLabel(indicatorModel) : '—';
         content.append(modelIndicator);
       }
       article.append(heading, content);
@@ -1321,9 +1364,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       renderChats(); controls();
       if (!connected || !model.value)
-        status('Saved conversation reopened. Connect to Ollama with an installed model to continue.', true);
+        status('Saved conversation reopened. Connect to a configured provider to continue.', true);
       else if (!savedModelInstalled)
-        status(`Saved conversation reopened. ${chat.model} is no longer installed; using ${model.value} instead.`);
+        status(`Saved conversation reopened. ${modelLabel(chat.model)} is unavailable; using ${modelLabel(model.value)} instead.`);
       else
         status('Saved conversation reopened. You can continue chatting.');
     }
@@ -1456,7 +1499,7 @@ document.addEventListener('DOMContentLoaded', () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            endpoint: baseUrl(), model: chatModel, mode,
+            endpoint: endpointForModel(chatModel), model: chatModel, mode,
             messages: [...history, userMessage].map(({ role, content }) => ({ role, content })),
             stream: true
           }),
@@ -1659,6 +1702,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── Global settings controls ─────────────────────────────────────────────────
   $('connect').addEventListener('click', connect);
+  $('provider').value = selectedProvider;
+  $('provider').addEventListener('change', () => {
+    selectedProvider = $('provider').value;
+    localStorage.setItem('assistant-provider-v1', selectedProvider);
+    applyProviderModels('');
+  });
   $('endpoint').addEventListener('input', () => {
     connectionAttempt++;
     connected = false;
@@ -1709,31 +1758,61 @@ document.addEventListener('DOMContentLoaded', () => {
     const attempt = ++connectionAttempt;
     connected = false;
     installedModels = [];
+    platformAiModels = [];
+    platformAiError = '';
+    ollamaError = '';
     syncGlobalControls();
     for (const tab of tabs) tab.pane.refreshControls();
-    status('Connecting to Ollama...');
+    status('Connecting to Ollama and PlatformAI...');
     try {
-      const endpoint = baseUrl();
-      const response = await fetch(`/api/ollama/tags?endpoint=${encodeURIComponent(endpoint)}`, { signal: AbortSignal.timeout(10000) });
-      if (!response.ok) throw new Error(`Ollama returned HTTP ${response.status}.`);
-      const data = await response.json();
-      if (!Array.isArray(data.models) || data.models.some(item => typeof item.name !== 'string'))
-        throw new Error('Ollama returned an invalid model list.');
+      let platformModels = [];
+      let platformError = '';
+      try {
+        const response = await fetch('/api/platformai/models', { signal: AbortSignal.timeout(10000) });
+        if (response.status === 404) {
+          throw new Error(
+            'The running server does not support PlatformAI. Restart the Node server from this project, then click Connect / refresh.'
+          );
+        }
+        if (!response.ok) throw new Error(`PlatformAI model configuration returned HTTP ${response.status}.`);
+        const data = await response.json();
+        if (!Array.isArray(data.models) || data.models.some(item =>
+          typeof item.id !== 'string' || typeof item.name !== 'string')) {
+          throw new Error('PlatformAI returned an invalid model list.');
+        }
+        platformModels = data.models;
+      } catch (error) {
+        platformError = error.message;
+      }
+
+      let ollamaModels = [];
+      let ollamaConnectionError = '';
+      try {
+        const endpoint = baseUrl();
+        const response = await fetch(`/api/ollama/tags?endpoint=${encodeURIComponent(endpoint)}`, { signal: AbortSignal.timeout(10000) });
+        if (!response.ok) throw new Error(`Ollama returned HTTP ${response.status}.`);
+        const data = await response.json();
+        if (!Array.isArray(data.models) || data.models.some(item => typeof item.name !== 'string')) {
+          throw new Error('Ollama returned an invalid model list.');
+        }
+        ollamaModels = data.models;
+      } catch (error) {
+        ollamaConnectionError = error.message;
+      }
+
       if (attempt !== connectionAttempt) return;
-      installedModels = data.models;
-      const selected = $('model').value;
-      $('model').replaceChildren();
-      for (const item of data.models) $('model').add(new Option(item.name, item.name));
-      if (!data.models.length) throw new Error('No models installed. Run ollama pull qwen3.5:9b.');
-      $('model').value = data.models.some(item => item.name === selected)
-        ? selected : (smallestInstalledModel(data.models)?.name ?? data.models[0].name);
-      updateModelPill();
-      for (const t of tabs) { t.pane.refreshModelPill(); }
-      connected = true;
-      status(`Connected. Ready with ${$('model').value} via Ollama and the code assistant.`);
+      installedModels = ollamaModels;
+      platformAiModels = platformModels;
+      platformAiError = platformError;
+      ollamaError = ollamaConnectionError;
+      applyProviderModels(
+        selectedProvider === 'ollama'
+          ? (smallestInstalledModel(ollamaModels)?.name ?? '')
+          : ''
+      );
     } catch (error) {
       if (attempt !== connectionAttempt) return;
-      status(`${error.message} Check that Ollama is running.`, true);
+      status(`${error.message} Check Ollama or configure PlatformAI in the server's .env file.`, true);
     }
     syncGlobalControls();
     for (const t of tabs) t.pane.onActivated();

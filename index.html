@@ -17,7 +17,7 @@
         <div id="storage-error" role="alert"></div>
         <div id="chat-list"></div>
       </details>
-      <p class="sidebar-note">Your selected Ollama model, with a deterministic code assistant and approval-based file changes.<br>Chats are saved in SQLite on this computer. Avoid storing secrets on shared computers.</p>
+      <p class="sidebar-note">Your selected Ollama or PlatformAI model, with a deterministic code assistant and approval-based file changes.<br>Chats are saved in SQLite on this computer. Avoid storing secrets on shared computers.</p>
     </aside>
     <div class="workspace">
     <header class="page-header">
@@ -25,7 +25,13 @@
       <details class="settings-menu">
       <summary>Settings</summary>
       <div class="settings">
-      <label class="endpoint">Ollama server
+      <label>AI provider
+        <select id="provider">
+          <option value="ollama">Ollama</option>
+          <option value="platformai">PlatformAI</option>
+        </select>
+      </label>
+      <label class="endpoint" id="ollama-endpoint-setting">Ollama server
         <input id="endpoint" type="url" value="http://127.0.0.1:11434" spellcheck="false">
       </label>
       <label>Model
@@ -57,7 +63,7 @@
     <div id="tab-panes"></div>
 
     <div class="footer">
-      <div id="status" role="status" aria-live="polite">Connecting to Ollama...</div>
+      <div id="status" role="status" aria-live="polite">Connecting to AI providers...</div>
       <span class="hint">AI can make mistakes. Verify important answers.</span>
     </div>
     </div>

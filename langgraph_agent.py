@@ -46,6 +46,7 @@ from langchain_core.tools import tool
 from langchain_ollama import ChatOllama
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, START, StateGraph, add_messages
+from platformai import ChatPlatformAI, is_platformai_model
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -562,11 +563,22 @@ ALL_TOOLS = [read_file, write_file, list_files, run_command, web_search, fetch_w
 # LLM builder
 # ---------------------------------------------------------------------------
 
-def build_llm(model: str, endpoint: str, *, temperature: float = 0.1, num_ctx: int = 12288, num_predict: int = 1536) -> ChatOllama:
+def build_llm(model: str, endpoint: str, *, temperature: float = 0.1, num_ctx: int = 12288, num_predict: int = 1536):
+    if is_platformai_model(model):
+        return ChatPlatformAI(
+            model=model,
+            temperature=temperature,
+            num_ctx=num_ctx,
+            num_predict=num_predict,
+        )
     return ChatOllama(
         model=model, base_url=endpoint, temperature=temperature,
         num_ctx=num_ctx, num_predict=num_predict, keep_alive="15m",
     )
+
+
+def auxiliary_model(model: str) -> str:
+    return model if is_platformai_model(model) else PROMPT_REWRITE_MODEL
 
 
 def llm_text(model: str, endpoint: str, msgs: list[BaseMessage], *, temperature: float = 0.1, num_predict: int = 1536) -> str:
@@ -834,9 +846,9 @@ class ResearchDecision:
     clarification: str = ""
 
 
-def _intent_clarification(messages: list[BaseMessage], endpoint: str) -> str:
+def _intent_clarification(messages: list[BaseMessage], endpoint: str, model: str) -> str:
     result = llm_json(
-        PROMPT_REWRITE_MODEL, endpoint,
+        auxiliary_model(model), endpoint,
         [
             SystemMessage(content=(
                 "Decide whether the assistant can meaningfully respond to the latest user request using "
@@ -898,7 +910,7 @@ def _web_research_query(messages: list[BaseMessage], model: str | None = None, e
     content = effective_request(messages)
     if not model or not endpoint:
         raise ValueError("A model and endpoint are required to decide whether current sources are needed.")
-    clarification = _intent_clarification(messages, endpoint)
+    clarification = _intent_clarification(messages, endpoint, model)
     if clarification:
         return ResearchDecision(clarification=clarification)
     # Local tasks still need intent checking, but do not require web classification.
@@ -1263,7 +1275,7 @@ def _synthesize_answer(model: str, endpoint: str, messages: list[BaseMessage]) -
             reason = ""
         if not reason:
             review = llm_json(
-                PROMPT_REWRITE_MODEL, endpoint,
+                auxiliary_model(model), endpoint,
                 [
                     SystemMessage(content=(
                         runtime_date_ctx() +
@@ -1707,7 +1719,9 @@ def main() -> int:
 
         chat_messages = [to_message(m) for m in messages]
         original_request = latest_user_text(chat_messages)
-        chat_messages, improved, was_tanglish = refine_request(PROMPT_REWRITE_MODEL, endpoint.strip(), chat_messages)
+        chat_messages, improved, was_tanglish = refine_request(
+            auxiliary_model(model.strip()), endpoint.strip(), chat_messages
+        )
         for index in range(len(chat_messages) - 1, -1, -1):
             if isinstance(chat_messages[index], HumanMessage):
                 chat_messages[index] = chat_messages[index].model_copy(update={

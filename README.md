@@ -1,13 +1,13 @@
 # Personal Assistant
 
-Local chat UI powered by your selected Ollama model, with a deterministic code assistant for planning, inspection, and approval-based file changes.
+Local chat UI powered by your selected Ollama or PlatformAI model, with a deterministic code assistant for planning, inspection, and approval-based file changes.
 
 ## Prerequisites
 
 - **Node.js** 22.13 or newer (uses the built-in `node:sqlite` module)
 - **Python** 3.9 or newer
-- **Ollama** installed and available on your terminal's `PATH`
-- Ollama model files downloaded — for example:
+- **Ollama** installed and available on your terminal's `PATH` when using local models
+- Ollama model files downloaded when using local models — for example:
   ```bash
   ollama pull llama3.2
   ollama pull qwen2.5:7b
@@ -16,6 +16,33 @@ Local chat UI powered by your selected Ollama model, with a deterministic code a
   ```
 
 No npm packages need to be installed.
+
+## PlatformAI
+
+The app can use the same PlatformAI InternalAPI gateways and shared ZAPI OAuth
+credentials as InQuest. Its local `.env` file is loaded by the Node server and
+is ignored by Git; keep credentials there rather than in browser settings or
+source files. The PlatformAI model picker includes every configured gateway
+with a portal ID. Gateway URLs, portal IDs, and ZAPI refresh credentials use
+the `PLATFORMAI_*`, `ZAPI_<DC>_*`, and optional `ZOHO_ACCOUNTS_HOST_<DC>`
+environment variables documented in InQuest's `.env.example`.
+
+The integration follows InQuest's OAuth refresh flow, sends the
+`Zoho-oauthtoken` and `portal_id` headers to
+`<base URL>/internalapi/v2/ai/chat`, and keeps tokens on the server. PlatformAI
+can be selected alongside Ollama; Ollama remains available for local models.
+PlatformAI chat and attachment responses stream from the gateway, while
+tool-calling requests use the gateway's non-streaming response format.
+
+To try PlatformAI, start the app, open **Settings**, choose **PlatformAI** under
+**AI provider**, then select a listed gateway/model. Choose **Ollama** to switch
+back to local models. The provider selection is remembered in this browser.
+
+After updating the server code, stop the existing Node process and restart it
+from this project. If `/api/platformai/models` returns HTTP 404, the running
+server does not include the PlatformAI endpoint; restarting is required.
+Click **Connect / refresh** after restarting. Model discovery errors are shown
+for the selected provider rather than reported as missing configuration.
 
 ## Install
 
